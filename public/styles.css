@@ -353,9 +353,9 @@ select:disabled {
 }
 
 .tab-strip-pane {
-  min-height: 2.08rem;
-  padding-top: 0.24rem;
-  padding-bottom: 0.24rem;
+  min-height: 2.12rem;
+  padding-top: 0.22rem;
+  padding-bottom: 0.28rem;
   background: rgba(18, 20, 28, 0.96);
 }
 
@@ -604,7 +604,9 @@ select:disabled {
   }
 
   .tab-strip-pane {
-    min-height: 1.78rem;
+    min-height: 1.82rem;
+    padding-top: 0.16rem;
+    padding-bottom: 0.22rem;
   }
 
   .tab-strip-pane .tab {
