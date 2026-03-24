@@ -362,7 +362,7 @@ function AppView(props: { state: ClientState }) {
       </header>
 
       <main class="workspace" ref={bindWorkspace}>
-        <div class={`tab-strip tab-strip-window${props.state.windows.length === 0 ? " is-empty" : ""}`}>
+        <div class="tab-strip tab-strip-window">
           <div id="window-tabs" class="tab-list">
             {props.state.windows.map((windowEntry) => (
               <button
@@ -380,7 +380,7 @@ function AppView(props: { state: ClientState }) {
           </div>
         </div>
 
-        <div class={`tab-strip tab-strip-pane${paneEntries.length === 0 ? " is-empty" : ""}`}>
+        <div class="tab-strip tab-strip-pane">
           <div id="pane-tabs" class="tab-list">
             {paneEntries.map((pane) => (
               <button
