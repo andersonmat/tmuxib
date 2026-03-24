@@ -3,7 +3,8 @@
   --bg: #171820;
   --topbar-bg: rgba(33, 34, 44, 0.94);
   --topbar-bg-strong: rgba(40, 42, 54, 0.98);
-  --terminal-bg: #181922;
+  --terminal-surface: #282a36;
+  --terminal-bg: var(--terminal-surface);
   --text: #f8f8f2;
   --muted: #7f8dbb;
   --line: #44475a;
@@ -309,7 +310,7 @@ select:disabled {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--terminal-bg);
+  background: var(--terminal-surface);
 }
 
 .tab-strip {
@@ -393,7 +394,8 @@ select:disabled {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  background: var(--terminal-bg);
+  padding-inline: var(--shell-inline-padding);
+  background: var(--terminal-surface);
 }
 
 #terminal {
