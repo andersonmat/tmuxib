@@ -123,32 +123,44 @@ function renderView() {
 }
 
 function AppView(props: { state: ClientState }) {
-  const sessionMeta = sessionMetaText(props.state);
   const stableSessionEntries = stableSessions(props.state.sessions);
   const activeWindowIndex = currentWindowIndex(props.state.windows);
   const paneEntries = visiblePanes(props.state.panes, props.state.windows);
   const activePaneId = props.state.currentPane ?? paneEntries[0]?.id ?? null;
+  const activeWindow = props.state.windows.find((entry) => entry.index === activeWindowIndex) ?? props.state.windows[0] ?? null;
+  const activePane = paneEntries.find((pane) => pane.id === activePaneId) ?? paneEntries[0] ?? null;
+  const sessionContext = currentSessionContext(props.state.currentSession, activeWindow, activePane);
   const hasSession = Boolean(props.state.currentSession);
 
   return (
     <div class="shell">
       <header id="session-panel" class="topbar" data-creating={String(props.state.creatingSession)}>
         <div class="topbar-shell">
-          <div id="session-controls" class={`topbar-main${props.state.creatingSession ? " hidden" : ""}`}>
+          <div id="session-controls" class="topbar-main">
             <div class="session-cluster">
+              <div class="session-context" aria-live="polite">
+                <span class="session-context-label">Where you are</span>
+                <div class={`session-context-primary${sessionContext.hasSession ? "" : " is-empty"}`}>
+                  {sessionContext.session}
+                </div>
+                <div class={`session-context-secondary${sessionContext.hasSession ? "" : " is-empty"}`}>
+                  {sessionContext.detail}
+                </div>
+              </div>
+            </div>
+            <div class="toolbar-cluster">
               <button
                 id="create-toggle-button"
-                class="ghost square"
+                class="ghost create-toggle-button"
                 type="button"
+                data-active={String(props.state.creatingSession)}
                 aria-expanded={props.state.creatingSession}
                 onClick={() => {
                   setCreateFormVisible(!props.state.creatingSession);
                 }}
               >
-                {props.state.creatingSession ? "-" : "+"}
+                Create Session
               </button>
-            </div>
-            <div class="toolbar-cluster">
               <div class="font-controls" role="group" aria-label="Terminal font size">
                 <button
                   id="font-size-decrease-button"
@@ -227,28 +239,6 @@ function AppView(props: { state: ClientState }) {
             </div>
           </div>
 
-          <div id="session-meta" class={`session-meta${sessionMeta ? "" : " hidden"}`}>
-            {sessionMeta ?? ""}
-          </div>
-
-          <div id="session-list" class={`session-list${props.state.creatingSession ? " hidden" : ""}`}>
-            {stableSessionEntries.map((session) => (
-              <button
-                key={session.name}
-                class="session-chip"
-                type="button"
-                data-active={String(session.name === props.state.currentSession)}
-                aria-pressed={session.name === props.state.currentSession}
-                onClick={handleAction(async () => {
-                  await openSession(session.name, { preserveTerminal: true, historyMode: "push" });
-                })}
-              >
-                <span class="session-chip-name">{session.name}</span>
-                <span class="session-chip-count">{session.windows}</span>
-              </button>
-            ))}
-          </div>
-
           <form
             id="session-form"
             class={`session-form${props.state.creatingSession ? "" : " hidden"}`}
@@ -296,6 +286,24 @@ function AppView(props: { state: ClientState }) {
               </button>
             </div>
           </form>
+
+          <div id="session-list" class="session-list">
+            {stableSessionEntries.map((session) => (
+              <button
+                key={session.name}
+                class="session-chip"
+                type="button"
+                data-active={String(session.name === props.state.currentSession)}
+                aria-pressed={session.name === props.state.currentSession}
+                onClick={handleAction(async () => {
+                  await openSession(session.name, { preserveTerminal: true, historyMode: "push" });
+                })}
+              >
+                <span class="session-chip-name">{session.name}</span>
+                <span class="session-chip-count">{session.windows}</span>
+              </button>
+            ))}
+          </div>
 
           <form
             id="paste-form"
@@ -935,24 +943,24 @@ function buildTerminalSocketUrl(sessionName: string) {
   return `${protocol}://${window.location.host}/ws/terminal/${encodeURIComponent(sessionName)}`;
 }
 
-function sessionMetaText(currentState: ClientState) {
-  if (!currentState.currentSession) {
-    return null;
+function currentSessionContext(
+  currentSession: string | null,
+  activeWindow: WindowSummary | null,
+  activePane: PaneSummary | null
+) {
+  if (!currentSession) {
+    return {
+      hasSession: false,
+      session: "No session selected",
+      detail: "Create a session or choose one below"
+    };
   }
 
-  const session = currentState.sessions.find((entry) => entry.name === currentState.currentSession);
-  const activeWindow = currentState.windows.find((entry) => entry.active) ?? currentState.windows[0];
-  const parts = [currentState.currentSession];
-
-  if (typeof session?.windows === "number") {
-    parts.push(`${session.windows} window${session.windows === 1 ? "" : "s"}`);
-  }
-
-  if (activeWindow) {
-    parts.push(`${activeWindow.index}:${activeWindow.name}`);
-  }
-
-  return parts.join(" · ");
+  return {
+    hasSession: true,
+    session: currentSession,
+    detail: `${activeWindow ? `${activeWindow.index}:${activeWindow.name}` : "No window"} · ${activePane ? activePane.command || paneLabel(activePane) : "No command"}`
+  };
 }
 
 const sessionNameCollator = new Intl.Collator(undefined, {
