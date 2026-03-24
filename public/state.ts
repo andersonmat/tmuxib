@@ -9,6 +9,7 @@ export function createInitialState(options: { terminalFontSize?: number } = {}):
     panes: [],
     creatingSession: false,
     showingPasteComposer: false,
+    connectionIssue: null,
     terminalFontSize: options.terminalFontSize ?? 13
   };
 }
@@ -20,7 +21,6 @@ export function createInitialRuntime(): RuntimeState {
     suppressedSocket: null,
     syncTimer: 0,
     syncing: false,
-    syncHotUntil: 0,
     lastSessionListSyncAt: 0
   };
 }
@@ -88,6 +88,11 @@ export function reduceState(currentState: ClientState, action: StateAction): Cli
       return currentState.showingPasteComposer === action.visible
         ? currentState
         : { ...currentState, showingPasteComposer: action.visible };
+
+    case "setConnectionIssue":
+      return currentState.connectionIssue === action.message
+        ? currentState
+        : { ...currentState, connectionIssue: action.message };
 
     case "setTerminalFontSize":
       return currentState.terminalFontSize === action.fontSize

@@ -54,8 +54,8 @@ export function parseTmuxControlNotification(line: string): TmuxNotificationPayl
         type: "tmux",
         event,
         sessionName: restAfterTokens(rest, 2),
-        refreshState: true,
-        refreshSessions: true
+        refreshState: false,
+        refreshSessions: false
       };
 
     case "sessions-changed":

@@ -40,6 +40,7 @@ export interface ClientState {
   panes: PaneSummary[];
   creatingSession: boolean;
   showingPasteComposer: boolean;
+  connectionIssue: string | null;
   terminalFontSize: number;
 }
 
@@ -61,7 +62,6 @@ export interface RuntimeState {
   suppressedSocket: WebSocket | null;
   syncTimer: number;
   syncing: boolean;
-  syncHotUntil: number;
   lastSessionListSyncAt: number;
 }
 
@@ -93,6 +93,10 @@ export type StateAction =
   | {
       type: "setShowingPasteComposer";
       visible: boolean;
+    }
+  | {
+      type: "setConnectionIssue";
+      message: string | null;
     }
   | {
       type: "setTerminalFontSize";

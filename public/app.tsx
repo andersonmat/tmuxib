@@ -1,5 +1,6 @@
 import { render, type JSX } from "preact";
 
+import { DEFAULT_CONNECTION_ISSUE, getConnectionIssueMessage, LOST_CONNECTION_ISSUE } from "./connection-issue.js";
 import { nextSessionNameAfterRemoval, stableSessions } from "./session-order.js";
 import { createInitialRuntime, createInitialState, currentWindowIndex, paneLabel, reduceState, visiblePanes } from "./state.js";
 import "./styles.css";
@@ -49,9 +50,6 @@ type SocketPayload = ReadyPayload | DataPayload | ErrorPayload | ExitPayload | T
 type SessionStatePayload = { windows: WindowSummary[]; panes: PaneSummary[] };
 type HistoryMode = NonNullable<DisconnectOptions["historyMode"]>;
 
-const SESSION_IDLE_SYNC_INTERVAL_MS = 1000;
-const SESSION_HOT_SYNC_INTERVAL_MS = 200;
-const SESSION_HOT_WINDOW_MS = 2500;
 const SESSION_LIST_SYNC_INTERVAL_MS = 5000;
 const SESSION_ROUTE_PREFIX = "/s/";
 
@@ -70,15 +68,19 @@ let workspaceElement: HTMLElement | null = null;
 let terminalFrameElement: HTMLDivElement | null = null;
 let sessionNameInputElement: HTMLInputElement | null = null;
 let pasteInputElement: HTMLTextAreaElement | null = null;
+let pendingFitFrame = 0;
+let pendingSettledFitFrame = 0;
+let lastResizeCols: number | null = null;
+let lastResizeRows: number | null = null;
+let pendingSyncRefreshSessions = false;
+let pendingSyncIgnoreHidden = false;
 
 terminal.onData((data) => {
   sendMessage({ type: "input", data });
-  bumpSessionSync();
 });
 
 document.addEventListener("visibilitychange", handleAction(async () => {
   if (!document.hidden) {
-    bumpSessionSync(0);
     await syncCurrentSession();
   }
 }));
@@ -106,7 +108,9 @@ if (document.fonts?.ready) {
 }
 
 renderView();
-void bootstrap();
+void bootstrap().catch((error) => {
+  reportError(error);
+});
 
 function dispatch(action: StateAction) {
   const nextState = reduceState(state, action);
@@ -204,7 +208,6 @@ function AppView(props: { state: ClientState }) {
 
                     if (pasted) {
                       setPasteComposerVisible(false);
-                      bumpSessionSync(0);
                       return;
                     }
 
@@ -238,6 +241,25 @@ function AppView(props: { state: ClientState }) {
               </div>
             </div>
           </div>
+
+          {props.state.connectionIssue ? (
+            <div class="connection-banner" role="status" aria-live="polite">
+              <div class="connection-banner-copy">
+                <span class="connection-banner-label">Connection</span>
+                <span class="connection-banner-message">{props.state.connectionIssue}</span>
+              </div>
+              <button
+                id="retry-connection-button"
+                class="ghost"
+                type="button"
+                onClick={handleAction(async () => {
+                  await retryConnection();
+                })}
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
 
           <form
             id="session-form"
@@ -330,7 +352,6 @@ function AppView(props: { state: ClientState }) {
               }
 
               setPasteComposerVisible(false);
-              bumpSessionSync(0);
             })}
           >
             <textarea
@@ -427,21 +448,22 @@ async function loadSessions() {
   const previousSessions = state.sessions;
   const previousCurrentSession = state.currentSession;
   const { sessions } = await api<{ sessions: SessionSummary[] }>("/api/sessions");
+  const orderedSessions = stableSessions(sessions);
   runtime.lastSessionListSyncAt = Date.now();
 
-  dispatch({ type: "sessionsLoaded", sessions });
+  dispatch({ type: "sessionsLoaded", sessions: orderedSessions });
 
   if (!previousCurrentSession || state.currentSession !== previousCurrentSession) {
     return;
   }
 
-  const stillExists = sessions.some((session) => session.name === previousCurrentSession);
+  const stillExists = orderedSessions.some((session) => session.name === previousCurrentSession);
 
   if (stillExists) {
     return;
   }
 
-  const fallbackSessionName = nextSessionNameAfterRemoval(previousSessions, sessions, previousCurrentSession);
+  const fallbackSessionName = nextSessionNameAfterRemoval(previousSessions, orderedSessions, previousCurrentSession);
 
   if (fallbackSessionName) {
     await openSession(fallbackSessionName, { preserveTerminal: true, historyMode: "replace" });
@@ -524,6 +546,22 @@ function setPasteComposerVisible(visible: boolean) {
   pasteInputElement?.select();
 }
 
+async function retryConnection() {
+  const requestedSession = state.currentSession ?? readSessionFromLocation();
+
+  await loadSessions();
+
+  if (requestedSession) {
+    await openSession(requestedSession, { preserveTerminal: true, historyMode: "replace" });
+    return;
+  }
+
+  const fallbackSession = stableSessions(state.sessions)[0]?.name;
+  if (fallbackSession) {
+    await openSession(fallbackSession, { preserveTerminal: true, historyMode: "replace" });
+  }
+}
+
 async function connectTerminal(
   sessionName: string,
   options: { preserveTerminal?: boolean; historyMode?: HistoryMode } = {}
@@ -544,10 +582,19 @@ async function connectTerminal(
 
   const ws = new WebSocket(buildTerminalSocketUrl(sessionName));
   runtime.ws = ws;
+  lastResizeCols = null;
+  lastResizeRows = null;
   terminal.focus();
 
   ws.addEventListener("open", () => {
+    dispatch({ type: "setConnectionIssue", message: null });
     scheduleFit();
+  });
+
+  ws.addEventListener("error", () => {
+    if (runtime.ws === ws) {
+      dispatch({ type: "setConnectionIssue", message: DEFAULT_CONNECTION_ISSUE });
+    }
   });
 
   ws.addEventListener("message", async (event) => {
@@ -558,17 +605,16 @@ async function connectTerminal(
     const payload = JSON.parse(event.data) as SocketPayload;
 
     if (payload.type === "ready") {
+      dispatch({ type: "setConnectionIssue", message: null });
       dispatch({ type: "setCurrentSession", sessionName: payload.sessionName });
       syncBrowserSession(payload.sessionName, options.historyMode ?? "push");
       await Promise.all([loadSessionState(), refreshSessionListIfStale(true)]);
-      startSessionSync();
       scheduleFit();
       return;
     }
 
     if (payload.type === "data") {
       terminal.write(payload.data);
-      bumpSessionSync();
       return;
     }
 
@@ -578,8 +624,9 @@ async function connectTerminal(
     }
 
     if (payload.type === "error") {
+      dispatch({ type: "setConnectionIssue", message: payload.message ?? DEFAULT_CONNECTION_ISSUE });
       reportError(payload.message ?? "terminal transport failed");
-      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true });
+      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true, clearSession: false, historyMode: "skip" });
       return;
     }
 
@@ -595,7 +642,8 @@ async function connectTerminal(
     }
 
     if (runtime.ws === ws && !runtime.reconnecting) {
-      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true });
+      dispatch({ type: "setConnectionIssue", message: LOST_CONNECTION_ISSUE });
+      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true, clearSession: false, historyMode: "skip" });
       void loadSessions().catch((error) => {
         reportError(error);
       });
@@ -614,7 +662,7 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
     ...options
   };
 
-  stopSessionSync();
+  clearPendingSync();
 
   if (resolvedOptions.suppressReconnect && runtime.ws) {
     runtime.suppressedSocket = runtime.ws;
@@ -625,6 +673,9 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
     runtime.ws = null;
     ws.close();
   }
+
+  lastResizeCols = null;
+  lastResizeRows = null;
 
   dispatch({ type: "disconnect", clearSession: resolvedOptions.clearSession });
 
@@ -705,13 +756,33 @@ function sendMessage(payload: Record<string, unknown>) {
 }
 
 function scheduleFit() {
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => {
-      fitTerminal();
+  if (pendingFitFrame || pendingSettledFitFrame) {
+    return;
+  }
+
+  pendingFitFrame = window.requestAnimationFrame(() => {
+    pendingFitFrame = 0;
+
+    pendingSettledFitFrame = window.requestAnimationFrame(() => {
+      pendingSettledFitFrame = 0;
+
+      const dimensions = fitTerminal();
+
+      if (!dimensions) {
+        return;
+      }
+
+      if (lastResizeCols === dimensions.cols && lastResizeRows === dimensions.rows) {
+        return;
+      }
+
+      lastResizeCols = dimensions.cols;
+      lastResizeRows = dimensions.rows;
+
       sendMessage({
         type: "resize",
-        cols: terminal.cols,
-        rows: terminal.rows
+        cols: dimensions.cols,
+        rows: dimensions.rows
       });
     });
   });
@@ -750,61 +821,41 @@ async function syncSession(options: { refreshSessions?: boolean; ignoreHidden?: 
   }
 }
 
-function startSessionSync() {
-  stopSessionSync();
-  runtime.syncHotUntil = Date.now() + SESSION_HOT_WINDOW_MS;
-  scheduleSessionSync(SESSION_HOT_SYNC_INTERVAL_MS);
-}
-
-function stopSessionSync() {
+function clearPendingSync() {
   if (runtime.syncTimer) {
     window.clearTimeout(runtime.syncTimer);
     runtime.syncTimer = 0;
   }
 
+  pendingSyncRefreshSessions = false;
+  pendingSyncIgnoreHidden = false;
   runtime.syncing = false;
-  runtime.syncHotUntil = 0;
 }
 
-function bumpSessionSync(delay = SESSION_HOT_SYNC_INTERVAL_MS) {
+function requestSessionSync(options: { refreshSessions?: boolean; ignoreHidden?: boolean } = {}) {
   if (!state.currentSession) {
     return;
   }
 
-  runtime.syncHotUntil = Date.now() + SESSION_HOT_WINDOW_MS;
+  pendingSyncRefreshSessions = pendingSyncRefreshSessions || (options.refreshSessions ?? false);
+  pendingSyncIgnoreHidden = pendingSyncIgnoreHidden || (options.ignoreHidden ?? false);
 
   if (runtime.syncTimer) {
-    window.clearTimeout(runtime.syncTimer);
-    runtime.syncTimer = 0;
-  }
-
-  scheduleSessionSync(delay);
-}
-
-function scheduleSessionSync(delay: number) {
-  if (!state.currentSession || runtime.syncTimer) {
     return;
   }
 
   runtime.syncTimer = window.setTimeout(() => {
+    const refreshSessions = pendingSyncRefreshSessions;
+    const ignoreHidden = pendingSyncIgnoreHidden;
+
+    pendingSyncRefreshSessions = false;
+    pendingSyncIgnoreHidden = false;
     runtime.syncTimer = 0;
 
-    void syncCurrentSession()
-      .catch((error) => {
-        reportError(error);
-      })
-      .finally(() => {
-        if (!state.currentSession) {
-          return;
-        }
-
-        const nextDelay = Date.now() < runtime.syncHotUntil
-          ? SESSION_HOT_SYNC_INTERVAL_MS
-          : SESSION_IDLE_SYNC_INTERVAL_MS;
-
-        scheduleSessionSync(nextDelay);
-      });
-  }, delay);
+    void syncSession({ refreshSessions, ignoreHidden }).catch((error) => {
+      reportError(error);
+    });
+  }, 0);
 }
 
 async function handleTerminalExit(ws: WebSocket, sessionName: string, exitCode: number | undefined) {
@@ -853,8 +904,11 @@ async function handleTmuxNotification(payload: TmuxNotificationPayload) {
     return;
   }
 
-  bumpSessionSync(0);
-  await syncSession({
+  if (!payload.refreshState && !payload.refreshSessions) {
+    return;
+  }
+
+  requestSessionSync({
     refreshSessions: payload.refreshSessions,
     ignoreHidden: true
   });
@@ -892,8 +946,17 @@ function handleAction(action: (event: Event) => Promise<void> | void) {
 
 function reportError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  const connectionIssue = getConnectionIssueMessage(error, { isOnline: navigator.onLine });
+
+  if (connectionIssue) {
+    dispatch({ type: "setConnectionIssue", message: connectionIssue });
+  }
+
   console.error(error);
-  terminal.writeln(`\r\n[error] ${message}`);
+
+  if (!connectionIssue) {
+    terminal.writeln(`\r\n[error] ${message}`);
+  }
 }
 
 function readErrorStatus(error: unknown) {
@@ -911,7 +974,22 @@ async function api<T>(path: string, init: RequestInit = {}) {
     ...init
   };
 
-  const response = await fetch(path, request);
+  let response: Response;
+
+  try {
+    response = await fetch(path, request);
+  } catch (error) {
+    const connectionIssue = getConnectionIssueMessage(error, { isOnline: navigator.onLine });
+
+    if (connectionIssue) {
+      dispatch({ type: "setConnectionIssue", message: connectionIssue });
+      throw new Error(connectionIssue, { cause: error });
+    }
+
+    throw error;
+  }
+
+  dispatch({ type: "setConnectionIssue", message: null });
   const payload = await response.json().catch(() => ({} as Record<string, unknown>));
 
   if (!response.ok) {

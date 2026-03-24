@@ -229,6 +229,37 @@ select:disabled {
   gap: 0.42rem;
 }
 
+.connection-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem var(--shell-inline-padding);
+  border-top: 1px solid rgba(255, 121, 198, 0.16);
+  border-bottom: 1px solid rgba(255, 121, 198, 0.16);
+  background: rgba(36, 26, 40, 0.82);
+}
+
+.connection-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.connection-banner-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.connection-banner-message {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 .paste-form {
   display: grid;
   gap: 0.42rem;
