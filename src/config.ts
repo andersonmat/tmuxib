@@ -12,6 +12,7 @@ function readPort(value: string | undefined, fallback: number) {
 export const config = {
   host: process.env.HOST ?? "127.0.0.1",
   port: readPort(process.env.PORT, 3000),
+  nodeBinary: process.env.NODE_BIN ?? "node",
   defaultShell: process.env.DEFAULT_SHELL ?? process.env.SHELL ?? "/bin/bash",
   defaultCwd: resolve(process.env.DEFAULT_CWD ?? process.cwd()),
   tmuxBinary: process.env.TMUX_BIN ?? "tmux",

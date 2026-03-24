@@ -1,7 +1,10 @@
+import { resolve } from "node:path";
+
 import { spawn as spawnPty } from "./node-pty";
 
 const bridgeFlag = "--pty-bridge";
 const bundledEntrypointPrefix = "/$bunfs/";
+const sourceBridgeScriptPath = resolve(import.meta.dir, "..", "bin", "pty-bridge.mjs");
 
 interface InputMessage {
   type: "input";
@@ -17,6 +20,7 @@ interface ResizeMessage {
 interface BridgeRuntime {
   bunMain: string;
   execPath: string;
+  nodeBinary?: string;
 }
 
 export interface BridgeProcessSpec {
@@ -30,20 +34,30 @@ export function createBridgeProcessSpec(
   cwd: string,
   runtime: BridgeRuntime = {
     bunMain: Bun.main,
-    execPath: process.execPath
+    execPath: process.execPath,
+    nodeBinary: "node"
   }
 ) {
   const bridgeArgs = [bridgeFlag, binary, JSON.stringify(args), cwd];
 
-  return isCompiledExecutable(runtime.bunMain)
-    ? {
-        command: runtime.execPath,
-        args: bridgeArgs
-      }
-    : {
-        command: runtime.execPath,
-        args: [runtime.bunMain, ...bridgeArgs]
-      };
+  if (isCompiledExecutable(runtime.bunMain)) {
+    return {
+      command: runtime.execPath,
+      args: bridgeArgs
+    };
+  }
+
+  if (isSourceRuntime(runtime.bunMain)) {
+    return {
+      command: runtime.nodeBinary ?? "node",
+      args: [sourceBridgeScriptPath, binary, JSON.stringify(args), cwd]
+    };
+  }
+
+  return {
+    command: runtime.execPath,
+    args: [runtime.bunMain, ...bridgeArgs]
+  };
 }
 
 export function maybeRunBridgeProcess(argv = process.argv) {
@@ -150,6 +164,10 @@ export function maybeRunBridgeProcess(argv = process.argv) {
 
 function isCompiledExecutable(bunMain: string) {
   return bunMain.startsWith(bundledEntrypointPrefix);
+}
+
+function isSourceRuntime(bunMain: string) {
+  return bunMain.endsWith(".ts");
 }
 
 function send(payload: unknown) {

@@ -258,7 +258,12 @@ async function attachTmuxClient(socket: WSContext, socketData: TerminalSocketDat
     const bridgeProcessSpec = createBridgeProcessSpec(
       config.tmuxBinary,
       tmux.attachArgs(socketData.sessionName),
-      socketData.cwd
+      socketData.cwd,
+      {
+        bunMain: Bun.main,
+        execPath: process.execPath,
+        nodeBinary: config.nodeBinary
+      }
     );
     const bridgeProcess = spawnChild(
       bridgeProcessSpec.command,

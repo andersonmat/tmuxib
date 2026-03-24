@@ -3,22 +3,22 @@ import { describe, expect, test } from "bun:test";
 import { createBridgeProcessSpec } from "../src/pty-bridge";
 
 describe("createBridgeProcessSpec", () => {
-  test("re-enters the Bun runtime with the current entrypoint in source mode", () => {
+  test("uses the Node bridge script in source mode", () => {
     const spec = createBridgeProcessSpec(
       "tmux",
       ["attach-session", "-t", "demo"],
       "/tmp/demo",
       {
         bunMain: "/workspace/src/index.ts",
-        execPath: "/usr/bin/bun"
+        execPath: "/usr/bin/bun",
+        nodeBinary: "node"
       }
     );
 
     expect(spec).toEqual({
-      command: "/usr/bin/bun",
+      command: "node",
       args: [
-        "/workspace/src/index.ts",
-        "--pty-bridge",
+        expect.stringContaining("/bin/pty-bridge.mjs"),
         "tmux",
         JSON.stringify(["attach-session", "-t", "demo"]),
         "/tmp/demo"
