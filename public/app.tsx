@@ -147,39 +147,6 @@ function AppView(props: { state: ClientState }) {
               >
                 {props.state.creatingSession ? "-" : "+"}
               </button>
-              <label class="compact-field">
-                <span>Session</span>
-                <select
-                  id="session-select"
-                  name="session"
-                  aria-label="Active session"
-                  disabled={props.state.sessions.length === 0}
-                  value={props.state.currentSession ?? ""}
-                  onChange={handleAction(async (event) => {
-                    const sessionName = (event.currentTarget as HTMLSelectElement).value;
-
-                    if (!sessionName) {
-                      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true, historyMode: "replace" });
-                      return;
-                    }
-
-                    await openSession(sessionName, { preserveTerminal: true, historyMode: "push" });
-                  })}
-                >
-                  {props.state.sessions.length === 0
-                    ? <option value="">No sessions</option>
-                    : [
-                        !props.state.currentSession
-                          ? <option value="">Attach session</option>
-                          : null,
-                        ...stableSessionEntries.map((session) => (
-                          <option key={session.name} value={session.name}>
-                            {session.name} · {session.windows}
-                          </option>
-                        ))
-                      ]}
-                </select>
-              </label>
             </div>
             <div class="toolbar-cluster">
               <div class="font-controls" role="group" aria-label="Terminal font size">

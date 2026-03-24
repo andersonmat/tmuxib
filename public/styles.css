@@ -146,28 +146,6 @@ select:disabled {
   flex: 0 1 auto;
 }
 
-.compact-field {
-  display: flex;
-  align-items: center;
-  gap: 0.42rem;
-  flex: 1 1 16rem;
-  min-width: min(20rem, 100%);
-}
-
-.compact-field span {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.compact-field select {
-  flex: 1 1 auto;
-}
-
 .square {
   width: 2.15rem;
   min-width: 2.15rem;
@@ -487,10 +465,6 @@ select:disabled {
     justify-content: space-between;
   }
 
-  .compact-field {
-    flex: 1 1 14rem;
-  }
-
   .pane-actions {
     flex: 1 1 auto;
     justify-content: flex-end;
@@ -516,10 +490,6 @@ select:disabled {
   .session-cluster,
   .toolbar-cluster {
     gap: 0.34rem;
-  }
-
-  .compact-field span {
-    display: none;
   }
 
   button,
