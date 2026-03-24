@@ -10,6 +10,7 @@ It serves the real `tmux` client UI over WebSocket, so the browser is attached t
 ## What it does
 
 - Starts a Bun HTTP and WebSocket server with no framework layer.
+- Can be shipped as a single Bun-compiled executable.
 - Creates or reuses `tmux` sessions on demand.
 - Streams a live terminal backed by a real PTY and real `tmux attach-session`.
 - Lists sessions, windows, and panes through a small JSON control plane.
@@ -33,10 +34,9 @@ bun run dev
 
 Open `http://127.0.0.1:3000` in a browser.
 
-`bun run dev` does two things:
-
-- builds a standalone client bundle into `.client/public/index.html`
-- starts the Bun server in watch mode
+`bun run dev` uses Bun hot reload and bundles the browser client on demand:
+- runs the Bun server with hot reload
+- bundles the browser client on demand through Bun HTML imports
 
 If you want a one-shot local run without the dev watcher:
 
@@ -48,15 +48,28 @@ bun run start
 
 ```bash
 bun run dev
-bun run dev:client
 bun run dev:server
 bun run start
 bun run build
+bun run build:exe
+bun run build:server
 bun run check
 bun run test
 ```
 
-`bun run build` writes a shippable client bundle to `dist/public/index.html`, bundles the server to `dist/server/index.js`, and copies the PTY bridge to `dist/bin/pty-bridge.mjs`.
+`bun run build` writes the primary shipping artifact:
+
+- `dist/tmuxib` as a Bun-compiled single executable
+
+Run the compiled binary directly:
+
+```bash
+./dist/tmuxib
+```
+
+If you also want a non-compiled Bun-targeted bundle for inspection, `bun run build:server` writes it to `dist/server/`.
+
+The single-file build path is currently validated for `linux-x64`, which is the packaged PTY runtime shipped in this repo.
 
 ## Environment
 
@@ -66,7 +79,6 @@ Copy `.env.example` if you want to override the defaults.
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Bind address |
 | `PORT` | `3000` | HTTP and WebSocket port |
-| `NODE_BIN` | `node` | Node executable used for the PTY bridge |
 | `DEFAULT_SHELL` | `$SHELL` or `/bin/bash` | Shell used for new panes |
 | `DEFAULT_CWD` | current process cwd | Working directory for new sessions and panes |
 | `TMUX_BIN` | `tmux` | `tmux` executable |
@@ -90,5 +102,7 @@ Set `DEBUG_TMUXIB=1` to enable server-side debug logging.
 
 ## Notes
 
+- The single-file binary still expects a working `tmux` installation on the host machine.
+- The executable bundles the frontend assets and the vendored PTY addon into one file; it does not bundle `tmux` itself.
 - `tmuxib` has no auth, tenancy, or transport hardening. Treat it as local-only until you put it behind real security controls.
 - The browser view is the actual `tmux` client, so native `tmux` keybindings and workflow still apply.
