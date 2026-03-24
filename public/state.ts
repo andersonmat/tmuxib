@@ -21,7 +21,8 @@ export function createInitialRuntime(): RuntimeState {
     suppressedSocket: null,
     syncTimer: 0,
     syncing: false,
-    lastSessionListSyncAt: 0
+    lastSessionListSyncAt: 0,
+    lastLocalResizeAt: 0
   };
 }
 

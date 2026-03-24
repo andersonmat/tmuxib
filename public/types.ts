@@ -63,6 +63,7 @@ export interface RuntimeState {
   syncTimer: number;
   syncing: boolean;
   lastSessionListSyncAt: number;
+  lastLocalResizeAt: number;
 }
 
 export type StateAction =

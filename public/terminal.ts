@@ -98,43 +98,18 @@ export function applyTerminalFontSize(fontSize: number) {
 }
 
 export function fitTerminal() {
+  const dimensions = fitAddon.proposeDimensions();
   const internalTerminal = terminal as InternalTerminal;
-  const element = internalTerminal.element;
-  const parentElement = element?.parentElement;
   const renderService = internalTerminal._core?._renderService;
 
-  if (!element || !parentElement || !renderService) {
+  if (!dimensions || !renderService) {
     return;
   }
-
-  const cellWidth = renderService.dimensions.css.cell.width;
-  const cellHeight = renderService.dimensions.css.cell.height;
-
-  if (!cellWidth || !cellHeight) {
-    return;
-  }
-
-  const elementStyle = window.getComputedStyle(element);
-  const paddingTop = readPixels(elementStyle, "padding-top");
-  const paddingBottom = readPixels(elementStyle, "padding-bottom");
-  const paddingLeft = readPixels(elementStyle, "padding-left");
-  const paddingRight = readPixels(elementStyle, "padding-right");
-  const availableHeight = parentElement.clientHeight - (paddingTop + paddingBottom);
-  const availableWidth = parentElement.clientWidth - (paddingLeft + paddingRight);
-
-  if (!Number.isFinite(availableWidth) || !Number.isFinite(availableHeight) || availableWidth <= 0 || availableHeight <= 0) {
-    return;
-  }
-
-  const cols = Math.floor(availableWidth / cellWidth);
-  const rows = Math.floor(availableHeight / cellHeight);
+  const cols = Math.floor(dimensions.cols);
+  const rows = Math.floor(dimensions.rows);
 
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1) {
     return;
-  }
-
-  if ((internalTerminal.options.letterSpacing ?? 0) !== 0) {
-    internalTerminal.options.letterSpacing = 0;
   }
 
   if (internalTerminal.cols !== cols || internalTerminal.rows !== rows) {
@@ -143,11 +118,6 @@ export function fitTerminal() {
   }
 
   return { cols, rows };
-}
-
-function readPixels(style: CSSStyleDeclaration, property: string) {
-  const value = Number.parseFloat(style.getPropertyValue(property));
-  return Number.isFinite(value) ? value : 0;
 }
 
 function installClipboardBindings(element: HTMLDivElement) {

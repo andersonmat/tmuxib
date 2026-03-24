@@ -52,6 +52,8 @@ type HistoryMode = NonNullable<DisconnectOptions["historyMode"]>;
 
 const SESSION_LIST_SYNC_INTERVAL_MS = 5000;
 const SESSION_ROUTE_PREFIX = "/s/";
+const LOCAL_RESIZE_ECHO_WINDOW_MS = 250;
+const RESIZE_ECHO_EVENTS = new Set(["session-window-changed", "window-pane-changed"]);
 
 const rootElement = requireElement<HTMLDivElement>("app");
 
@@ -778,6 +780,7 @@ function scheduleFit() {
 
       lastResizeCols = dimensions.cols;
       lastResizeRows = dimensions.rows;
+      runtime.lastLocalResizeAt = Date.now();
 
       sendMessage({
         type: "resize",
@@ -905,6 +908,10 @@ async function handleTmuxNotification(payload: TmuxNotificationPayload) {
   }
 
   if (!payload.refreshState && !payload.refreshSessions) {
+    return;
+  }
+
+  if (RESIZE_ECHO_EVENTS.has(payload.event) && Date.now() - runtime.lastLocalResizeAt < LOCAL_RESIZE_ECHO_WINDOW_MS) {
     return;
   }
 
