@@ -180,16 +180,6 @@ function AppView(props: { state: ClientState }) {
                       ]}
                 </select>
               </label>
-              <button
-                id="refresh-button"
-                class="ghost"
-                type="button"
-                onClick={handleAction(async () => {
-                  await refreshView();
-                })}
-              >
-                Sync
-              </button>
             </div>
             <div class="toolbar-cluster">
               <div class="font-controls" role="group" aria-label="Terminal font size">
@@ -456,10 +446,6 @@ async function bootstrap() {
   if (state.sessions.length === 1) {
     await openSession(state.sessions[0].name, { preserveTerminal: true, historyMode: "replace" });
   }
-}
-
-async function refreshView() {
-  await Promise.all([loadSessions(), loadSessionState()]);
 }
 
 async function loadSessions() {
