@@ -93,7 +93,8 @@ export async function prepareCompiledBridgeHelper() {
   }
 
   const helperDirectory = join(tmpdir(), "tmuxib");
-  const helperPath = join(helperDirectory, compiledHelperName);
+  const helperAssetName = ((helperBlob as Blob & { name: string }).name || compiledHelperName).replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const helperPath = join(helperDirectory, `${process.pid}-${helperAssetName}`);
 
   await mkdir(helperDirectory, { recursive: true });
   await Bun.write(helperPath, helperBlob);
