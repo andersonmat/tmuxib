@@ -13,6 +13,11 @@
   --accent-soft: rgba(189, 147, 249, 0.14);
   --shadow: rgba(0, 0, 0, 0.28);
   --shell-inline-padding: 0.56rem;
+  --pill-gap: 0.3rem;
+  --pill-pad-inline: 0.54rem;
+  --pill-pad-block: 0.18rem;
+  --pill-pad-inline-compact: 0.46rem;
+  --pill-pad-block-compact: 0.14rem;
   font-family: "IBM Plex Sans", "Aptos", "Segoe UI Variable", sans-serif;
 }
 
@@ -233,10 +238,10 @@ select:disabled {
 .session-list {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  min-height: 1.78rem;
+  gap: var(--pill-gap);
+  min-height: 1.86rem;
   overflow-x: auto;
-  padding-bottom: 0.02rem;
+  padding-block: 0.04rem 0.06rem;
   scrollbar-width: thin;
 }
 
@@ -245,7 +250,8 @@ select:disabled {
   align-items: center;
   gap: 0.42rem;
   min-height: 1.72rem;
-  padding: 0.14rem 0.5rem;
+  padding-block: var(--pill-pad-block);
+  padding-inline: var(--pill-pad-inline);
   border: 1px solid transparent;
   background: rgba(98, 114, 164, 0.09);
   color: var(--muted);
@@ -332,7 +338,7 @@ select:disabled {
   align-items: stretch;
   flex: 0 0 auto;
   min-width: 0;
-  padding: 0.28rem var(--shell-inline-padding);
+  padding: 0.24rem var(--shell-inline-padding);
   border-bottom: 1px solid var(--line);
   background: rgba(20, 22, 31, 0.88);
 }
@@ -356,7 +362,7 @@ select:disabled {
 .tab-list {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: var(--pill-gap);
   flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
@@ -367,7 +373,8 @@ select:disabled {
   display: inline-flex;
   align-items: center;
   min-height: 1.72rem;
-  padding: 0.24rem 0.52rem;
+  padding-block: var(--pill-pad-block);
+  padding-inline: var(--pill-pad-inline);
   border: 1px solid transparent;
   background: rgba(98, 114, 164, 0.12);
   color: var(--muted);
@@ -383,7 +390,6 @@ select:disabled {
 
 .tab-strip-window .tab {
   min-height: 1.72rem;
-  padding: 0.14rem 0.5rem;
   background: rgba(98, 114, 164, 0.14);
   font-size: 0.77rem;
 }
@@ -394,7 +400,8 @@ select:disabled {
 
 .tab-strip-pane .tab {
   min-height: 1.48rem;
-  padding: 0.12rem 0.42rem;
+  padding-block: var(--pill-pad-block-compact);
+  padding-inline: var(--pill-pad-inline-compact);
   background: rgba(98, 114, 164, 0.08);
   font-size: 0.72rem;
 }
@@ -519,6 +526,10 @@ select:disabled {
 @media (max-width: 640px) {
   :root {
     --shell-inline-padding: 0.38rem;
+    --pill-pad-inline: 0.46rem;
+    --pill-pad-block: 0.15rem;
+    --pill-pad-inline-compact: 0.4rem;
+    --pill-pad-block-compact: 0.12rem;
   }
 
   .topbar-shell {
@@ -580,12 +591,11 @@ select:disabled {
   }
 
   .tab-strip {
-    padding: 0.18rem 0.24rem;
+    padding-block: 0.18rem;
   }
 
   .tab {
     min-height: 1.64rem;
-    padding: 0.22rem 0.45rem;
     font-size: 0.72rem;
   }
 
@@ -599,7 +609,6 @@ select:disabled {
 
   .tab-strip-pane .tab {
     min-height: 1.42rem;
-    padding: 0.12rem 0.38rem;
   }
 }
 
