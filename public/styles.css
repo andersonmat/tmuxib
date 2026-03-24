@@ -318,7 +318,7 @@ select:disabled {
   align-items: stretch;
   flex: 0 0 auto;
   min-width: 0;
-  padding: 0.2rem var(--shell-inline-padding);
+  padding: 0.28rem var(--shell-inline-padding);
   border-bottom: 1px solid var(--line);
   background: rgba(20, 22, 31, 0.88);
 }
@@ -328,14 +328,14 @@ select:disabled {
 }
 
 .tab-strip-window {
-  min-height: 2.2rem;
+  min-height: 2.36rem;
   background: rgba(23, 24, 34, 0.92);
 }
 
 .tab-strip-pane {
-  min-height: 1.92rem;
-  padding-top: 0.18rem;
-  padding-bottom: 0.18rem;
+  min-height: 2.08rem;
+  padding-top: 0.24rem;
+  padding-bottom: 0.24rem;
   background: rgba(18, 20, 28, 0.96);
 }
 

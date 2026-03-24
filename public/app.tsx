@@ -124,7 +124,7 @@ function renderView() {
 
 function AppView(props: { state: ClientState }) {
   const sessionMeta = sessionMetaText(props.state);
-  const orderedSessionEntries = orderedSessions(props.state.sessions, props.state.currentSession);
+  const stableSessionEntries = stableSessions(props.state.sessions);
   const activeWindowIndex = currentWindowIndex(props.state.windows);
   const paneEntries = visiblePanes(props.state.panes, props.state.windows);
   const activePaneId = props.state.currentPane ?? paneEntries[0]?.id ?? null;
@@ -172,7 +172,7 @@ function AppView(props: { state: ClientState }) {
                         !props.state.currentSession
                           ? <option value="">Attach session</option>
                           : null,
-                        ...props.state.sessions.map((session) => (
+                        ...stableSessionEntries.map((session) => (
                           <option key={session.name} value={session.name}>
                             {session.name} · {session.windows}
                           </option>
@@ -265,7 +265,7 @@ function AppView(props: { state: ClientState }) {
           </div>
 
           <div id="session-list" class={`session-list${props.state.creatingSession ? " hidden" : ""}`}>
-            {orderedSessionEntries.map((session) => (
+            {stableSessionEntries.map((session) => (
               <button
                 key={session.name}
                 class="session-chip"
@@ -988,21 +988,14 @@ function sessionMetaText(currentState: ClientState) {
   return parts.join(" · ");
 }
 
-function orderedSessions(sessions: SessionSummary[], currentSession: string | null) {
-  if (!currentSession) {
-    return sessions;
-  }
+const sessionNameCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base"
+});
 
+function stableSessions(sessions: SessionSummary[]) {
   return [...sessions].sort((left, right) => {
-    if (left.name === currentSession) {
-      return -1;
-    }
-
-    if (right.name === currentSession) {
-      return 1;
-    }
-
-    return left.name.localeCompare(right.name);
+    return sessionNameCollator.compare(left.name, right.name);
   });
 }
 
