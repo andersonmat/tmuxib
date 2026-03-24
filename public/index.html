@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Remote Terminal</title>
+    <link rel="stylesheet" href="/vendor/xterm.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header id="session-panel" class="topbar">
+        <div class="topbar-shell">
+          <div id="session-controls" class="topbar-main">
+            <div class="session-cluster">
+              <button id="create-toggle-button" class="ghost square" type="button" aria-expanded="false">+</button>
+              <label class="compact-field">
+                <span>Session</span>
+                <select id="session-select" name="session" aria-label="Active session"></select>
+              </label>
+              <button id="refresh-button" class="ghost" type="button">Sync</button>
+            </div>
+            <div class="toolbar-cluster">
+              <div class="font-controls" role="group" aria-label="Terminal font size">
+                <button id="font-size-decrease-button" class="ghost square" type="button" aria-label="Decrease terminal font size">A-</button>
+                <span id="font-size-value" class="font-size-value">13</span>
+                <button id="font-size-increase-button" class="ghost square" type="button" aria-label="Increase terminal font size">A+</button>
+              </div>
+              <div class="pane-actions">
+                <button id="paste-button" class="ghost mobile-only" type="button" aria-expanded="false">Paste</button>
+                <button id="split-vertical-button" class="ghost" type="button">Below</button>
+                <button id="split-horizontal-button" class="ghost" type="button">Right</button>
+              </div>
+            </div>
+          </div>
+          <div id="session-meta" class="session-meta"></div>
+          <div id="session-list" class="session-list"></div>
+          <form id="session-form" class="session-form hidden">
+            <input
+              id="session-name-input"
+              name="sessionName"
+              type="text"
+              placeholder="new session"
+              autocomplete="off"
+              aria-label="Session name"
+            />
+            <div class="create-actions">
+              <button id="create-session-button" class="primary" type="submit">Create</button>
+              <button id="create-cancel-button" class="ghost" type="button">Cancel</button>
+            </div>
+          </form>
+          <form id="paste-form" class="paste-form hidden mobile-only">
+            <textarea
+              id="paste-input"
+              name="pasteInput"
+              rows="4"
+              placeholder="paste"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              aria-label="Paste terminal input"
+            ></textarea>
+            <div class="create-actions">
+              <button id="paste-send-button" class="primary" type="submit">Send</button>
+              <button id="paste-cancel-button" class="ghost" type="button">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <div class="tab-strip tab-strip-window">
+          <div id="window-tabs" class="tab-list"></div>
+        </div>
+        <div class="tab-strip tab-strip-pane">
+          <div id="pane-tabs" class="tab-list"></div>
+        </div>
+        <div id="terminal-frame" class="terminal-frame">
+          <div id="terminal"></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="/vendor/xterm.js"></script>
+    <script src="/vendor/xterm-addon-fit.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

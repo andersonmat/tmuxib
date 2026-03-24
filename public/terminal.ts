@@ -1,0 +1,283 @@
+import { terminalElement } from "./dom.js";
+import type { TerminalWindow, XTermLike } from "./types.js";
+
+export const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+export const DEFAULT_TERMINAL_FONT_SIZE = 13;
+export const MIN_TERMINAL_FONT_SIZE = 11;
+export const MAX_TERMINAL_FONT_SIZE = 18;
+
+const terminalWindow = window as unknown as TerminalWindow;
+const fontSizeStorageKey = "remote-terminal:font-size";
+const initialFontSize = readStoredTerminalFontSize();
+
+export const terminal = new terminalWindow.Terminal({
+  cursorBlink: true,
+  fontFamily: '"IBM Plex Mono", "Aptos Mono", "Cascadia Mono", monospace',
+  fontSize: initialFontSize,
+  lineHeight: 1.25,
+  // tmux owns history; disabling xterm scrollback avoids the extra right gutter
+  // that the fit addon reserves for a client-side scrollbar.
+  scrollback: 0,
+  theme: {
+    background: "#282a36",
+    foreground: "#f8f8f2",
+    cursor: "#f8f8f2",
+    cursorAccent: "#282a36",
+    selectionBackground: "rgba(189, 147, 249, 0.24)"
+  }
+});
+
+export const fitAddon = new terminalWindow.FitAddon.FitAddon();
+
+terminal.loadAddon(fitAddon);
+terminal.open(terminalElement);
+installClipboardBindings();
+
+interface InternalTerminal extends XTermLike {
+  element?: HTMLElement;
+  _core?: {
+    _renderService: {
+      clear(): void;
+      dimensions: {
+        css: {
+          cell: {
+            width: number;
+            height: number;
+          };
+        };
+      };
+    };
+  };
+}
+
+const isApplePlatform = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
+export function clampTerminalFontSize(fontSize: number) {
+  return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(fontSize)));
+}
+
+export function readStoredTerminalFontSize() {
+  try {
+    const rawValue = window.localStorage.getItem(fontSizeStorageKey);
+    const parsed = Number(rawValue);
+
+    if (!Number.isFinite(parsed)) {
+      return DEFAULT_TERMINAL_FONT_SIZE;
+    }
+
+    return clampTerminalFontSize(parsed);
+  } catch {
+    return DEFAULT_TERMINAL_FONT_SIZE;
+  }
+}
+
+export function applyTerminalFontSize(fontSize: number) {
+  const nextFontSize = clampTerminalFontSize(fontSize);
+  terminal.options.fontSize = nextFontSize;
+
+  try {
+    window.localStorage.setItem(fontSizeStorageKey, String(nextFontSize));
+  } catch {
+    // Local storage access can fail in hardened browser contexts.
+  }
+
+  return nextFontSize;
+}
+
+export function fitTerminal() {
+  const internalTerminal = terminal as InternalTerminal;
+  const element = internalTerminal.element;
+  const parentElement = element?.parentElement;
+  const renderService = internalTerminal._core?._renderService;
+
+  if (!element || !parentElement || !renderService) {
+    return;
+  }
+
+  const cellWidth = renderService.dimensions.css.cell.width;
+  const cellHeight = renderService.dimensions.css.cell.height;
+
+  if (!cellWidth || !cellHeight) {
+    return;
+  }
+
+  const parentStyle = window.getComputedStyle(parentElement);
+  const parentHeight = parseInt(parentStyle.getPropertyValue("height"), 10);
+  const parentWidth = Math.max(0, parseInt(parentStyle.getPropertyValue("width"), 10));
+  const elementStyle = window.getComputedStyle(element);
+  const paddingTop = parseInt(elementStyle.getPropertyValue("padding-top"), 10);
+  const paddingBottom = parseInt(elementStyle.getPropertyValue("padding-bottom"), 10);
+  const paddingLeft = parseInt(elementStyle.getPropertyValue("padding-left"), 10);
+  const paddingRight = parseInt(elementStyle.getPropertyValue("padding-right"), 10);
+  const availableHeight = parentHeight - (paddingTop + paddingBottom);
+  const availableWidth = parentWidth - (paddingLeft + paddingRight);
+  const currentLetterSpacing = internalTerminal.options.letterSpacing ?? 0;
+  const baseCellWidth = Math.max(1, cellWidth - currentLetterSpacing);
+  const cols = Math.max(2, Math.floor(availableWidth / baseCellWidth));
+  const rows = Math.max(1, Math.floor(availableHeight / cellHeight));
+  const nextLetterSpacing = Math.max(0, (availableWidth - cols * baseCellWidth) / cols);
+
+  if (Math.abs(currentLetterSpacing - nextLetterSpacing) > 0.001) {
+    internalTerminal.options.letterSpacing = nextLetterSpacing;
+  }
+
+  if (internalTerminal.cols !== cols || internalTerminal.rows !== rows) {
+    renderService.clear();
+    internalTerminal.resize(cols, rows);
+  }
+}
+
+function installClipboardBindings() {
+  terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type !== "keydown") {
+      return true;
+    }
+
+    if (shouldSelectAll(event)) {
+      event.preventDefault();
+      terminal.selectAll();
+      return false;
+    }
+
+    if (shouldCopySelection(event)) {
+      event.preventDefault();
+      void copySelectionToClipboard();
+      return false;
+    }
+
+    if (shouldPasteFromClipboard(event)) {
+      event.preventDefault();
+      void pasteFromClipboard();
+      return false;
+    }
+
+    return true;
+  });
+
+  terminalElement.addEventListener("copy", (event) => {
+    if (!terminal.hasSelection() || !event.clipboardData) {
+      return;
+    }
+
+    event.clipboardData.setData("text/plain", terminal.getSelection());
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
+
+  terminalElement.addEventListener("paste", (event) => {
+    const text = event.clipboardData?.getData("text/plain");
+
+    if (typeof text !== "string") {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    terminal.focus();
+    terminal.paste(text);
+  }, { capture: true });
+}
+
+function shouldSelectAll(event: KeyboardEvent) {
+  const key = event.key.toLowerCase();
+
+  if (isApplePlatform) {
+    return event.metaKey && !event.ctrlKey && !event.altKey && key === "a";
+  }
+
+  return event.ctrlKey && event.shiftKey && !event.altKey && key === "a";
+}
+
+function shouldCopySelection(event: KeyboardEvent) {
+  if (!terminal.hasSelection()) {
+    return false;
+  }
+
+  const key = event.key.toLowerCase();
+
+  if (isApplePlatform) {
+    return event.metaKey && !event.ctrlKey && !event.altKey && key === "c";
+  }
+
+  return event.ctrlKey && event.shiftKey && !event.altKey && key === "c";
+}
+
+function shouldPasteFromClipboard(event: KeyboardEvent) {
+  if (event.altKey) {
+    return false;
+  }
+
+  if (isApplePlatform) {
+    return false;
+  }
+
+  if (!navigator.clipboard?.readText) {
+    return false;
+  }
+
+  const key = event.key.toLowerCase();
+  return (event.ctrlKey && event.shiftKey && key === "v") || (!event.ctrlKey && event.shiftKey && key === "insert");
+}
+
+async function copySelectionToClipboard() {
+  const text = terminal.getSelection();
+
+  if (!text) {
+    return;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      terminal.focus();
+      return;
+    } catch {
+      // Fall back to execCommand for browsers that block async clipboard writes.
+    }
+  }
+
+  const shadowTextarea = document.createElement("textarea");
+  shadowTextarea.value = text;
+  shadowTextarea.setAttribute("readonly", "true");
+  shadowTextarea.tabIndex = -1;
+  shadowTextarea.style.position = "fixed";
+  shadowTextarea.style.left = "-9999px";
+  shadowTextarea.style.top = "0";
+  shadowTextarea.style.opacity = "0";
+
+  document.body.append(shadowTextarea);
+  shadowTextarea.select();
+
+  try {
+    document.execCommand("copy");
+  } finally {
+    shadowTextarea.remove();
+    terminal.focus();
+  }
+}
+
+export function pasteTerminalText(text: string) {
+  terminal.focus();
+  terminal.paste(text);
+}
+
+export async function pasteFromClipboard() {
+  if (!navigator.clipboard?.readText) {
+    return false;
+  }
+
+  try {
+    const text = await navigator.clipboard.readText();
+
+    if (!text) {
+      terminal.focus();
+      return false;
+    }
+
+    pasteTerminalText(text);
+    return true;
+  } catch {
+    terminal.focus();
+    return false;
+  }
+}
