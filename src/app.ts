@@ -10,7 +10,7 @@ import { getRuntimeIdentity } from "./runtime";
 import { normalizeSessionName } from "./session-name";
 import { parseTmuxControlNotification } from "./tmux-control";
 import { TmuxService } from "./tmux";
-import { createBridgeProcessSpec } from "./pty-bridge";
+import { createBridgeProcessSpec, resolveBridgeSpawnCwd } from "./pty-bridge";
 
 interface TerminalSocketData {
   clientId: string;
@@ -38,7 +38,8 @@ interface BridgePayload {
 }
 
 interface TerminalBridge {
-  process: ChildProcessWithoutNullStreams;
+  write(input: string): void;
+  kill(): void;
   stdoutBuffer: string;
   stderrBuffer: string;
 }
@@ -227,7 +228,7 @@ function createTerminalSocketEvents(input: { requestedSessionName: string | unde
       }
 
       try {
-        bridge.process.stdin.write(`${JSON.stringify(payload)}\n`);
+        bridge.write(`${JSON.stringify(payload)}\n`);
       } catch (error) {
         cleanupSocket(socketData.clientId);
         send(socket, {
@@ -262,57 +263,16 @@ async function attachTmuxClient(socket: WSContext, socketData: TerminalSocketDat
       {
         bunMain: Bun.main,
         execPath: process.execPath,
-        nodeBinary: config.nodeBinary
+        nodeBinary: config.nodeBinary,
+        platform: process.platform
       }
     );
-    const bridgeProcess = spawnChild(
-      bridgeProcessSpec.command,
-      bridgeProcessSpec.args,
-      {
-        cwd: runtimeRoot,
-        env: process.env,
-        stdio: ["pipe", "pipe", "pipe"]
-      }
-    );
-
-    bridgeProcess.stdout.setEncoding("utf8");
-    bridgeProcess.stderr.setEncoding("utf8");
-
-    const bridge: TerminalBridge = {
-      process: bridgeProcess,
-      stdoutBuffer: "",
-      stderrBuffer: ""
-    };
+    const bridge = bridgeProcessSpec.spawnMode === "bun"
+      ? spawnBunBridge(socket, socketData, bridgeProcessSpec)
+      : spawnChildProcessBridge(socket, socketData, bridgeProcessSpec);
 
     terminalBridges.set(socketData.clientId, bridge);
     debug("pty bridge spawned", socketData.sessionName);
-
-    bridgeProcess.stdout.on("data", (chunk: string) => {
-      bridge.stdoutBuffer = appendChunk(bridge.stdoutBuffer, chunk, (line) => {
-        handleBridgeMessage(socket, socketData, line);
-      });
-    });
-
-    bridgeProcess.stderr.on("data", (chunk: string) => {
-      bridge.stderrBuffer = appendChunk(bridge.stderrBuffer, chunk, (line) => {
-        debug("bridge stderr", socketData.sessionName, line);
-      });
-    });
-
-    bridgeProcess.on("exit", (code, signal) => {
-      terminalBridges.delete(socketData.clientId);
-      debug("bridge exit", socketData.sessionName, code ?? "none", signal ?? "none");
-      socket.close();
-    });
-
-    bridgeProcess.on("error", (error) => {
-      terminalBridges.delete(socketData.clientId);
-      send(socket, {
-        type: "error",
-        message: error.message
-      });
-      socket.close();
-    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown terminal error";
     send(socket, { type: "error", message });
@@ -374,12 +334,111 @@ async function attachTmuxMonitor(socket: WSContext, socketData: TerminalSocketDa
 
 function cleanupSocket(clientId: string) {
   const bridge = terminalBridges.get(clientId);
-  bridge?.process.kill();
+  bridge?.kill();
   terminalBridges.delete(clientId);
 
   const monitor = controlMonitors.get(clientId);
   monitor?.process.kill();
   controlMonitors.delete(clientId);
+}
+
+function spawnChildProcessBridge(socket: WSContext, socketData: TerminalSocketData, bridgeProcessSpec: ReturnType<typeof createBridgeProcessSpec>) {
+  const spawnCwd = resolveBridgeSpawnCwd(runtimeRoot);
+  const bridgeProcess = spawnChild(
+    bridgeProcessSpec.command,
+    bridgeProcessSpec.args,
+    {
+      cwd: spawnCwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"]
+    }
+  );
+
+  bridgeProcess.stdout.setEncoding("utf8");
+  bridgeProcess.stderr.setEncoding("utf8");
+
+  const bridge: TerminalBridge = {
+    write(input: string) {
+      bridgeProcess.stdin.write(input);
+    },
+    kill() {
+      bridgeProcess.kill();
+    },
+    stdoutBuffer: "",
+    stderrBuffer: ""
+  };
+
+  bridgeProcess.stdout.on("data", (chunk: string) => {
+    bridge.stdoutBuffer = appendChunk(bridge.stdoutBuffer, chunk, (line) => {
+      handleBridgeMessage(socket, socketData, line);
+    });
+  });
+
+  bridgeProcess.stderr.on("data", (chunk: string) => {
+    bridge.stderrBuffer = appendChunk(bridge.stderrBuffer, chunk, (line) => {
+      debug("bridge stderr", socketData.sessionName, line);
+    });
+  });
+
+  bridgeProcess.on("exit", (code, signal) => {
+    terminalBridges.delete(socketData.clientId);
+    debug("bridge exit", socketData.sessionName, code ?? "none", signal ?? "none");
+    socket.close();
+  });
+
+  bridgeProcess.on("error", (error) => {
+    terminalBridges.delete(socketData.clientId);
+    send(socket, {
+      type: "error",
+      message: error.message
+    });
+    socket.close();
+  });
+
+  return bridge;
+}
+
+function spawnBunBridge(socket: WSContext, socketData: TerminalSocketData, bridgeProcessSpec: ReturnType<typeof createBridgeProcessSpec>) {
+  const spawnCwd = resolveBridgeSpawnCwd(runtimeRoot);
+  const bridgeProcess = Bun.spawn({
+    cmd: [bridgeProcessSpec.command, ...bridgeProcessSpec.args],
+    cwd: spawnCwd,
+    env: process.env,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe"
+  });
+
+  const bridge: TerminalBridge = {
+    write(input: string) {
+      bridgeProcess.stdin.write(input);
+    },
+    kill() {
+      bridgeProcess.kill();
+    },
+    stdoutBuffer: "",
+    stderrBuffer: ""
+  };
+
+  void pumpTextStream(bridgeProcess.stdout, (chunk) => {
+    bridge.stdoutBuffer = appendChunk(bridge.stdoutBuffer, chunk, (line) => {
+      handleBridgeMessage(socket, socketData, line);
+    });
+  });
+
+  void pumpTextStream(bridgeProcess.stderr, (chunk) => {
+    bridge.stderrBuffer = appendChunk(bridge.stderrBuffer, chunk, (line) => {
+      debug("bridge stderr", socketData.sessionName, line);
+    });
+  });
+
+  void bridgeProcess.exited.then((code) => {
+    terminalBridges.delete(socketData.clientId);
+    debug("bridge exit", socketData.sessionName, code ?? "none", "none");
+    socket.close();
+  });
+
+  return bridge;
 }
 
 async function readJson(request: Request) {
@@ -426,6 +485,32 @@ function appendChunk(buffer: string, chunk: string, onLine: (line: string) => vo
   }
 
   return working;
+}
+
+async function pumpTextStream(stream: ReadableStream<Uint8Array>, onChunk: (chunk: string) => void) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (value) {
+        onChunk(decoder.decode(value, { stream: true }));
+      }
+    }
+
+    const trailingChunk = decoder.decode();
+    if (trailingChunk) {
+      onChunk(trailingChunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function handleBridgeMessage(socket: WSContext, socketData: TerminalSocketData, line: string) {

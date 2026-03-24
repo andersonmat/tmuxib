@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { spawn as spawnPty } from "./node-pty";
@@ -21,11 +22,13 @@ interface BridgeRuntime {
   bunMain: string;
   execPath: string;
   nodeBinary?: string;
+  platform?: NodeJS.Platform;
 }
 
 export interface BridgeProcessSpec {
   command: string;
   args: string[];
+  spawnMode: "bun" | "child_process";
 }
 
 export function createBridgeProcessSpec(
@@ -35,28 +38,32 @@ export function createBridgeProcessSpec(
   runtime: BridgeRuntime = {
     bunMain: Bun.main,
     execPath: process.execPath,
-    nodeBinary: "node"
+    nodeBinary: "node",
+    platform: process.platform
   }
 ) {
   const bridgeArgs = [bridgeFlag, binary, JSON.stringify(args), cwd];
 
   if (isCompiledExecutable(runtime.bunMain)) {
     return {
-      command: runtime.execPath,
-      args: bridgeArgs
+      command: compiledExecutableCommand(runtime),
+      args: bridgeArgs,
+      spawnMode: "bun"
     };
   }
 
   if (isSourceRuntime(runtime.bunMain)) {
     return {
       command: runtime.nodeBinary ?? "node",
-      args: [sourceBridgeScriptPath, binary, JSON.stringify(args), cwd]
+      args: [sourceBridgeScriptPath, binary, JSON.stringify(args), cwd],
+      spawnMode: "child_process"
     };
   }
 
   return {
     command: runtime.execPath,
-    args: [runtime.bunMain, ...bridgeArgs]
+    args: [runtime.bunMain, ...bridgeArgs],
+    spawnMode: "child_process"
   };
 }
 
@@ -162,12 +169,20 @@ export function maybeRunBridgeProcess(argv = process.argv) {
   return true;
 }
 
+export function resolveBridgeSpawnCwd(preferredCwd: string, fallbackCwd = process.cwd()) {
+  return existsSync(preferredCwd) ? preferredCwd : fallbackCwd;
+}
+
 function isCompiledExecutable(bunMain: string) {
   return bunMain.startsWith(bundledEntrypointPrefix);
 }
 
 function isSourceRuntime(bunMain: string) {
   return bunMain.endsWith(".ts");
+}
+
+function compiledExecutableCommand(runtime: BridgeRuntime) {
+  return runtime.platform === "linux" ? "/proc/self/exe" : runtime.execPath;
 }
 
 function send(payload: unknown) {
