@@ -3,9 +3,11 @@ import { websocket } from "hono/bun";
 
 import { app } from "./app";
 import { config } from "./config";
-import { maybeRunBridgeProcess } from "./pty-bridge";
+import { maybeRunBridgeProcess, prepareCompiledBridgeHelper } from "./pty-bridge";
 
 if (!maybeRunBridgeProcess()) {
+  await prepareCompiledBridgeHelper();
+
   const server = Bun.serve({
     hostname: config.host,
     port: config.port,

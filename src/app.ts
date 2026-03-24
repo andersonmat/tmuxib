@@ -267,9 +267,7 @@ async function attachTmuxClient(socket: WSContext, socketData: TerminalSocketDat
         platform: process.platform
       }
     );
-    const bridge = bridgeProcessSpec.spawnMode === "bun"
-      ? spawnBunBridge(socket, socketData, bridgeProcessSpec)
-      : spawnChildProcessBridge(socket, socketData, bridgeProcessSpec);
+    const bridge = spawnChildProcessBridge(socket, socketData, bridgeProcessSpec);
 
     terminalBridges.set(socketData.clientId, bridge);
     debug("pty bridge spawned", socketData.sessionName);
@@ -398,49 +396,6 @@ function spawnChildProcessBridge(socket: WSContext, socketData: TerminalSocketDa
   return bridge;
 }
 
-function spawnBunBridge(socket: WSContext, socketData: TerminalSocketData, bridgeProcessSpec: ReturnType<typeof createBridgeProcessSpec>) {
-  const spawnCwd = resolveBridgeSpawnCwd(runtimeRoot);
-  const bridgeProcess = Bun.spawn({
-    cmd: [bridgeProcessSpec.command, ...bridgeProcessSpec.args],
-    cwd: spawnCwd,
-    env: process.env,
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe"
-  });
-
-  const bridge: TerminalBridge = {
-    write(input: string) {
-      bridgeProcess.stdin.write(input);
-    },
-    kill() {
-      bridgeProcess.kill();
-    },
-    stdoutBuffer: "",
-    stderrBuffer: ""
-  };
-
-  void pumpTextStream(bridgeProcess.stdout, (chunk) => {
-    bridge.stdoutBuffer = appendChunk(bridge.stdoutBuffer, chunk, (line) => {
-      handleBridgeMessage(socket, socketData, line);
-    });
-  });
-
-  void pumpTextStream(bridgeProcess.stderr, (chunk) => {
-    bridge.stderrBuffer = appendChunk(bridge.stderrBuffer, chunk, (line) => {
-      debug("bridge stderr", socketData.sessionName, line);
-    });
-  });
-
-  void bridgeProcess.exited.then((code) => {
-    terminalBridges.delete(socketData.clientId);
-    debug("bridge exit", socketData.sessionName, code ?? "none", "none");
-    socket.close();
-  });
-
-  return bridge;
-}
-
 async function readJson(request: Request) {
   if (request.headers.get("content-type")?.includes("application/json")) {
     return request.json();
@@ -487,32 +442,6 @@ function appendChunk(buffer: string, chunk: string, onLine: (line: string) => vo
   return working;
 }
 
-async function pumpTextStream(stream: ReadableStream<Uint8Array>, onChunk: (chunk: string) => void) {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      if (value) {
-        onChunk(decoder.decode(value, { stream: true }));
-      }
-    }
-
-    const trailingChunk = decoder.decode();
-    if (trailingChunk) {
-      onChunk(trailingChunk);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 function handleBridgeMessage(socket: WSContext, socketData: TerminalSocketData, line: string) {
   try {
     const payload = JSON.parse(line) as BridgePayload;
@@ -555,7 +484,6 @@ function handleTmuxControlLine(socket: WSContext, socketData: TerminalSocketData
     return;
   }
 
-  debug("control notification", socketData.sessionName, payload.event);
   send(socket, payload);
 }
 

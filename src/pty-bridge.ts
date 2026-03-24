@@ -1,11 +1,16 @@
+import { chmod, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { spawn as spawnPty } from "./node-pty";
 
 const bridgeFlag = "--pty-bridge";
 const bundledEntrypointPrefix = "/$bunfs/";
 const sourceBridgeScriptPath = resolve(import.meta.dir, "..", "bin", "pty-bridge.mjs");
+const activePtys = new Set<object>();
+const compiledHelperName = "tmuxib-pty-helper";
+let compiledBridgeCommand: string | null = null;
 
 interface InputMessage {
   type: "input";
@@ -23,12 +28,13 @@ interface BridgeRuntime {
   execPath: string;
   nodeBinary?: string;
   platform?: NodeJS.Platform;
+  compiledBridgeCommand?: string;
 }
 
 export interface BridgeProcessSpec {
   command: string;
   args: string[];
-  spawnMode: "bun" | "child_process";
+  spawnMode: "child_process";
 }
 
 export function createBridgeProcessSpec(
@@ -42,29 +48,58 @@ export function createBridgeProcessSpec(
     platform: process.platform
   }
 ) {
-  const bridgeArgs = [bridgeFlag, binary, JSON.stringify(args), cwd];
+  const selfBridgeArgs = [bridgeFlag, binary, JSON.stringify(args), cwd];
+  const externalBridgeArgs = [binary, JSON.stringify(args), cwd];
 
   if (isCompiledExecutable(runtime.bunMain)) {
     return {
-      command: compiledExecutableCommand(runtime),
-      args: bridgeArgs,
-      spawnMode: "bun"
+      command: runtime.compiledBridgeCommand ?? compiledBridgeCommand ?? compiledExecutableCommand(runtime),
+      args: externalBridgeArgs,
+      spawnMode: "child_process"
     };
   }
 
   if (isSourceRuntime(runtime.bunMain)) {
     return {
       command: runtime.nodeBinary ?? "node",
-      args: [sourceBridgeScriptPath, binary, JSON.stringify(args), cwd],
+      args: [sourceBridgeScriptPath, ...externalBridgeArgs],
       spawnMode: "child_process"
     };
   }
 
   return {
     command: runtime.execPath,
-    args: [runtime.bunMain, ...bridgeArgs],
+    args: [runtime.bunMain, ...selfBridgeArgs],
     spawnMode: "child_process"
   };
+}
+
+export async function prepareCompiledBridgeHelper() {
+  if (!isCompiledExecutable(Bun.main)) {
+    return;
+  }
+
+  if (compiledBridgeCommand) {
+    return;
+  }
+
+  const helperBlob = Bun.embeddedFiles.find((blob) => {
+    const name = (blob as Blob & { name: string }).name;
+    return name === compiledHelperName || name === `${compiledHelperName}.`;
+  });
+
+  if (!helperBlob) {
+    throw new Error(`Embedded PTY helper "${compiledHelperName}" is missing from the executable`);
+  }
+
+  const helperDirectory = join(tmpdir(), "tmuxib");
+  const helperPath = join(helperDirectory, compiledHelperName);
+
+  await mkdir(helperDirectory, { recursive: true });
+  await Bun.write(helperPath, helperBlob);
+  await chmod(helperPath, 0o755);
+
+  compiledBridgeCommand = helperPath;
 }
 
 export function maybeRunBridgeProcess(argv = process.argv) {
@@ -96,7 +131,13 @@ export function maybeRunBridgeProcess(argv = process.argv) {
       TERM_PROGRAM: "tmuxib"
     }
   });
+  activePtys.add(pty as unknown as object);
   let ptyExited = false;
+  // Bun-compiled executables do not reliably stay alive on embedded N-API PTY callbacks alone.
+  // Keep the bridge process pinned until the PTY exits or the bridge is explicitly terminated.
+  const keepAlive = setInterval(() => {
+    // Intentionally empty.
+  }, 1000);
 
   pty.onData((data) => {
     send({ type: "data", data });
@@ -104,6 +145,8 @@ export function maybeRunBridgeProcess(argv = process.argv) {
 
   pty.onExit(({ exitCode, signal }) => {
     ptyExited = true;
+    activePtys.delete(pty as unknown as object);
+    clearInterval(keepAlive);
     send({ type: "exit", exitCode, signal });
     process.exit(0);
   });
@@ -158,6 +201,8 @@ export function maybeRunBridgeProcess(argv = process.argv) {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
+      activePtys.delete(pty as unknown as object);
+      clearInterval(keepAlive);
       if (!ptyExited) {
         pty.kill();
       }

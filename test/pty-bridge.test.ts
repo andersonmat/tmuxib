@@ -35,19 +35,19 @@ describe("createBridgeProcessSpec", () => {
       {
         bunMain: "/$bunfs/root/app",
         execPath: "/tmp/tmuxib",
-        platform: "linux"
+        platform: "linux",
+        compiledBridgeCommand: "/tmp/tmuxib-pty-helper"
       }
     );
 
     expect(spec).toEqual({
-      command: "/proc/self/exe",
+      command: "/tmp/tmuxib-pty-helper",
       args: [
-        "--pty-bridge",
         "tmux",
         JSON.stringify(["attach-session", "-t", "demo"]),
         "/tmp/demo"
       ],
-      spawnMode: "bun"
+      spawnMode: "child_process"
     });
   });
 });
