@@ -1,15 +1,16 @@
-# Remote Terminal
+# tmuxib
 
-`remote-terminal` is a Bun-based scaffold for serving a real `tmux` session through the browser. The server runs all shells and `tmux` clients as the same user/group as the server process, exposes a small HTTP control plane for sessions and panes, and streams the live terminal UI over WebSocket into `xterm.js`.
+`tmuxib` is a local-first `tmux in browser` server built with Bun, `tmux`, `node-pty`, and `xterm.js`.
+It serves the real `tmux` client UI over WebSocket, so the browser is attached to an actual session instead of a fake shell emulator.
 
-## What this scaffold already does
+## What it does
 
-- Starts a Bun HTTP/WebSocket server with no framework overhead.
-- Creates and reuses `tmux` sessions on demand.
-- Attaches a browser client to the real `tmux` UI through a PTY, not a mock shell.
-- Lists sessions, windows, and panes through JSON APIs.
-- Splits panes, focuses panes, kills panes, and kills sessions through explicit `tmux` commands.
-- Pushes session/window updates quickly through a tmux control-mode monitor.
+- Starts a Bun HTTP and WebSocket server with no framework layer.
+- Creates or reuses `tmux` sessions on demand.
+- Streams a live terminal backed by a real PTY and real `tmux attach-session`.
+- Lists sessions, windows, and panes through a small JSON control plane.
+- Splits panes, selects panes or windows, kills panes, and tears down sessions.
+- Watches `tmux` control-mode notifications so the browser stays in sync when the layout changes.
 
 ## Requirements
 
@@ -17,16 +18,16 @@
 - Node.js `22+`
 - `tmux` `3.2+`
 - A POSIX shell such as `/bin/bash` or `/bin/zsh`
-- Build tools needed by `node-pty` on your machine
+- Native build tooling required by `node-pty`
 
-## Run it
+## Quick start
 
 ```bash
 bun install
 bun run dev
 ```
 
-The server binds to `127.0.0.1:3000` by default.
+Open `http://127.0.0.1:3000` in a browser.
 
 ## Scripts
 
@@ -40,19 +41,21 @@ bun run test
 
 ## Environment
 
-Copy `.env.example` if you want to override defaults.
+Copy `.env.example` if you want to override the defaults.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Bind address |
-| `PORT` | `3000` | HTTP/WebSocket port |
+| `PORT` | `3000` | HTTP and WebSocket port |
 | `NODE_BIN` | `node` | Node executable used for the PTY bridge |
 | `DEFAULT_SHELL` | `$SHELL` or `/bin/bash` | Shell used for new panes |
 | `DEFAULT_CWD` | current process cwd | Working directory for new sessions and panes |
 | `TMUX_BIN` | `tmux` | `tmux` executable |
-| `SESSION_PREFIX` | `rt` | Prefix for generated session names |
+| `SESSION_PREFIX` | `tmuxib` | Prefix for generated session names |
 
-## API
+Set `DEBUG_TMUXIB=1` to enable server-side debug logging.
+
+## API surface
 
 - `GET /api/meta`
 - `GET /api/sessions`
@@ -68,5 +71,5 @@ Copy `.env.example` if you want to override defaults.
 
 ## Notes
 
-- There is no auth layer in this scaffold. Treat it as local-only until you put it behind real authentication and transport security.
-- The browser terminal displays the actual `tmux` client, so native `tmux` keybindings still work.
+- `tmuxib` has no auth, tenancy, or transport hardening. Treat it as local-only until you put it behind real security controls.
+- The browser view is the actual `tmux` client, so native `tmux` keybindings and workflow still apply.
