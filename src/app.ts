@@ -9,7 +9,7 @@ import { config } from "./config";
 import { getRuntimeIdentity } from "./runtime";
 import { normalizeSessionName } from "./session-name";
 import { parseTmuxControlNotification } from "./tmux-control";
-import { TmuxService } from "./tmux";
+import { isMissingTmuxTargetError, TmuxService } from "./tmux";
 import { createBridgeProcessSpec, resolveBridgeSpawnCwd } from "./pty-bridge";
 
 interface TerminalSocketData {
@@ -181,7 +181,7 @@ export const app = new Hono();
 
 app.onError((error, c) => {
   const message = error instanceof Error ? error.message : "Unexpected server error";
-  const status = /can't find (session|pane|window)/i.test(message) ? 404 : 500;
+  const status = isMissingTmuxTargetError(error) ? 404 : 500;
   return c.json({ error: message }, status);
 });
 
