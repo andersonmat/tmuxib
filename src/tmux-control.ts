@@ -17,7 +17,6 @@ export function parseTmuxControlNotification(line: string): TmuxNotificationPayl
   const event = rawEvent.slice(1);
 
   switch (event) {
-    case "layout-change":
     case "pane-mode-changed":
     case "session-window-changed":
     case "window-add":
@@ -28,6 +27,14 @@ export function parseTmuxControlNotification(line: string): TmuxNotificationPayl
         type: "tmux",
         event,
         refreshState: true,
+        refreshSessions: false
+      };
+
+    case "layout-change":
+      return {
+        type: "tmux",
+        event,
+        refreshState: false,
         refreshSessions: false
       };
 
