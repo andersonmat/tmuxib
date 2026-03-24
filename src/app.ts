@@ -1,5 +1,4 @@
 import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { Hono } from "hono";
@@ -11,6 +10,7 @@ import { getRuntimeIdentity } from "./runtime";
 import { normalizeSessionName } from "./session-name";
 import { parseTmuxControlNotification } from "./tmux-control";
 import { TmuxService } from "./tmux";
+import { createBridgeProcessSpec } from "./pty-bridge";
 
 interface TerminalSocketData {
   clientId: string;
@@ -58,8 +58,6 @@ const tmux = new TmuxService({
 });
 const debugEnabled = process.env.DEBUG_TMUXIB === "1";
 const runtimeRoot = resolve(import.meta.dir, "..");
-const bridgeScriptPath = resolve(runtimeRoot, "bin/pty-bridge.mjs");
-const clientRoot = resolveClientRoot(runtimeRoot);
 const terminalBridges = new Map<string, TerminalBridge>();
 const controlMonitors = new Map<string, TmuxControlMonitor>();
 
@@ -208,50 +206,6 @@ app.get(
   })
 );
 
-app.get("/s/:sessionName", () => {
-  return serveClientEntry();
-});
-
-app.get("*", (c) => {
-  const pathname = new URL(c.req.url).pathname;
-
-  if (pathname === "/") {
-    return serveClientEntry();
-  }
-
-  const filePath = resolveClientPath(pathname);
-  if (filePath && existsSync(filePath)) {
-    return serveKnownFile(filePath);
-  }
-
-  return c.json({ error: "Not found" }, 404);
-});
-
-function resolveClientRoot(root: string) {
-  const candidates = [
-    resolve(root, ".client/public"),
-    resolve(root, "public")
-  ];
-
-  return candidates.find((candidate) => existsSync(resolve(candidate, "index.html"))) ?? candidates[1];
-}
-
-function resolveClientPath(pathname: string) {
-  const relativePath = pathname.startsWith("/") ? pathname.slice(1) : pathname;
-  const filePath = resolve(clientRoot, relativePath);
-  const normalizedRoot = `${clientRoot}/`;
-
-  if (filePath === clientRoot || filePath.startsWith(normalizedRoot)) {
-    return filePath;
-  }
-
-  return null;
-}
-
-function serveClientEntry() {
-  return serveKnownFile(resolve(clientRoot, "index.html"));
-}
-
 function createTerminalSocketEvents(input: { requestedSessionName: string | undefined; cwd: string }) {
   const socketData: TerminalSocketData = {
     clientId: crypto.randomUUID(),
@@ -301,9 +255,14 @@ async function attachTmuxClient(socket: WSContext, socketData: TerminalSocketDat
       );
     });
 
+    const bridgeProcessSpec = createBridgeProcessSpec(
+      config.tmuxBinary,
+      tmux.attachArgs(socketData.sessionName),
+      socketData.cwd
+    );
     const bridgeProcess = spawnChild(
-      config.nodeBinary,
-      [bridgeScriptPath, config.tmuxBinary, JSON.stringify(tmux.attachArgs(socketData.sessionName)), socketData.cwd],
+      bridgeProcessSpec.command,
+      bridgeProcessSpec.args,
       {
         cwd: runtimeRoot,
         env: process.env,
@@ -416,10 +375,6 @@ function cleanupSocket(clientId: string) {
   const monitor = controlMonitors.get(clientId);
   monitor?.process.kill();
   controlMonitors.delete(clientId);
-}
-
-function serveKnownFile(filePath: string) {
-  return new Response(Bun.file(filePath));
 }
 
 async function readJson(request: Request) {
