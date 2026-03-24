@@ -66,7 +66,6 @@ const resizeObserver = new ResizeObserver(() => {
   scheduleFit();
 });
 
-let workspaceElement: HTMLElement | null = null;
 let terminalFrameElement: HTMLDivElement | null = null;
 let sessionNameInputElement: HTMLInputElement | null = null;
 let pasteInputElement: HTMLTextAreaElement | null = null;
@@ -385,7 +384,7 @@ function AppView(props: { state: ClientState }) {
         </div>
       </header>
 
-      <main class="workspace" ref={bindWorkspace}>
+      <main class="workspace">
         <div class="tab-strip tab-strip-window">
           <div id="window-tabs" class="tab-list">
             {props.state.windows.map((windowEntry) => (
@@ -590,7 +589,6 @@ async function connectTerminal(
 
   ws.addEventListener("open", () => {
     dispatch({ type: "setConnectionIssue", message: null });
-    scheduleFit();
   });
 
   ws.addEventListener("error", () => {
@@ -688,8 +686,6 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
   if (!resolvedOptions.preserveTerminal) {
     terminal.clear();
   }
-
-  scheduleFit();
 }
 
 async function splitPane(direction: "vertical" | "horizontal") {
@@ -706,7 +702,6 @@ async function splitPane(direction: "vertical" | "horizontal") {
   });
 
   replaceSessionState(response);
-  scheduleFit();
 }
 
 async function selectWindow(windowIndex: number) {
@@ -720,7 +715,6 @@ async function selectWindow(windowIndex: number) {
   );
 
   replaceSessionState(response);
-  scheduleFit();
   terminal.focus();
 }
 
@@ -1062,22 +1056,6 @@ function currentSessionContext(
     session: currentSession,
     detail: `${activeWindow ? `${activeWindow.index}:${activeWindow.name}` : "No window"} · ${activePane ? activePane.command || paneLabel(activePane) : "No command"}`
   };
-}
-
-function bindWorkspace(element: HTMLElement | null) {
-  if (workspaceElement === element) {
-    return;
-  }
-
-  if (workspaceElement) {
-    resizeObserver.unobserve(workspaceElement);
-  }
-
-  workspaceElement = element;
-
-  if (workspaceElement) {
-    resizeObserver.observe(workspaceElement);
-  }
 }
 
 function bindTerminalFrame(element: HTMLDivElement | null) {

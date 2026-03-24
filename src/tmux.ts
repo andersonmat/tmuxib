@@ -30,6 +30,8 @@ class TmuxCommandError extends Error {
   }
 }
 
+const MISSING_TARGET_PATTERN = /(?:can't find (?:session|pane|window)|no current target)/i;
+
 export interface CreateSessionInput {
   name?: string;
   cwd?: string;
@@ -195,7 +197,11 @@ function isNoServer(error: unknown) {
 }
 
 function isMissingTarget(error: unknown) {
-  return /can't find (session|pane|window)/i.test(readStderr(error));
+  return MISSING_TARGET_PATTERN.test(readStderr(error));
+}
+
+export function isMissingTmuxTargetError(error: unknown) {
+  return isMissingTarget(error);
 }
 
 function readStderr(error: unknown) {

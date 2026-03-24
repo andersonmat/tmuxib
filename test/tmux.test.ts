@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TmuxService } from "../src/tmux";
+import { isMissingTmuxTargetError, TmuxService } from "../src/tmux";
 
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
@@ -102,6 +102,43 @@ describe("TmuxService", () => {
         "has-session|-t test",
         "new-session|-d -s test -c /tmp/project"
       ]);
+    } finally {
+      rmSync(fakeTmux.directory, { force: true, recursive: true });
+    }
+  });
+
+  test("treats no current target as a missing session", async () => {
+    const fakeTmux = createFakeTmux();
+
+    writeFileSync(
+      fakeTmux.binary,
+      `#!/usr/bin/env bash
+set -eu
+
+cmd="$1"
+shift || true
+
+printf '%s|%s\n' "$cmd" "$*" >> ${shellQuote(fakeTmux.logFile)}
+
+case "$cmd" in
+  has-session)
+    printf 'no current target\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'unsupported command: %s\n' "$cmd" >&2
+    exit 2
+    ;;
+esac
+`,
+      "utf8"
+    );
+    chmodSync(fakeTmux.binary, 0o755);
+
+    try {
+      const service = createTmuxService(fakeTmux.binary);
+      await expect(service.hasSession("test")).resolves.toBe(false);
+      expect(isMissingTmuxTargetError({ stderr: "no current target" })).toBe(true);
     } finally {
       rmSync(fakeTmux.directory, { force: true, recursive: true });
     }

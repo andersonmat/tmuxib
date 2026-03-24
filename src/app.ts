@@ -16,6 +16,8 @@ interface TerminalSocketData {
   clientId: string;
   sessionName: string;
   cwd: string;
+  lastResizeCols: number | null;
+  lastResizeRows: number | null;
 }
 
 interface ResizeMessage {
@@ -211,7 +213,9 @@ function createTerminalSocketEvents(input: { requestedSessionName: string | unde
   const socketData: TerminalSocketData = {
     clientId: crypto.randomUUID(),
     sessionName: normalizeSessionName(input.requestedSessionName, config.sessionPrefix),
-    cwd: input.cwd
+    cwd: input.cwd,
+    lastResizeCols: null,
+    lastResizeRows: null
   };
 
   return {
@@ -228,6 +232,24 @@ function createTerminalSocketEvents(input: { requestedSessionName: string | unde
       }
 
       try {
+        if (payload.type === "resize") {
+          const cols = Number.isFinite(payload.cols) && payload.cols > 0 ? Math.floor(payload.cols) : null;
+          const rows = Number.isFinite(payload.rows) && payload.rows > 0 ? Math.floor(payload.rows) : null;
+
+          if (!cols || !rows) {
+            return;
+          }
+
+          if (socketData.lastResizeCols === cols && socketData.lastResizeRows === rows) {
+            return;
+          }
+
+          socketData.lastResizeCols = cols;
+          socketData.lastResizeRows = rows;
+          bridge.write(`${JSON.stringify({ type: "resize", cols, rows })}\n`);
+          return;
+        }
+
         bridge.write(`${JSON.stringify(payload)}\n`);
       } catch (error) {
         cleanupSocket(socketData.clientId);
