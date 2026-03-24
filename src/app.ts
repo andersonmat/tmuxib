@@ -24,6 +24,7 @@ interface ResizeMessage {
   type: "resize";
   cols: number;
   rows: number;
+  force?: boolean;
 }
 
 interface InputMessage {
@@ -235,12 +236,13 @@ function createTerminalSocketEvents(input: { requestedSessionName: string | unde
         if (payload.type === "resize") {
           const cols = Number.isFinite(payload.cols) && payload.cols > 0 ? Math.floor(payload.cols) : null;
           const rows = Number.isFinite(payload.rows) && payload.rows > 0 ? Math.floor(payload.rows) : null;
+          const force = payload.force === true;
 
           if (!cols || !rows) {
             return;
           }
 
-          if (socketData.lastResizeCols === cols && socketData.lastResizeRows === rows) {
+          if (!force && socketData.lastResizeCols === cols && socketData.lastResizeRows === rows) {
             return;
           }
 

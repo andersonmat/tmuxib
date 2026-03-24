@@ -54,6 +54,7 @@ const SESSION_LIST_SYNC_INTERVAL_MS = 5000;
 const SESSION_ROUTE_PREFIX = "/s/";
 const LOCAL_RESIZE_ECHO_WINDOW_MS = 250;
 const RESIZE_ECHO_EVENTS = new Set(["session-window-changed", "window-pane-changed"]);
+const RESIZE_REASSERT_EVENTS = new Set(["window-add", "session-window-changed"]);
 
 const rootElement = requireElement<HTMLDivElement>("app");
 
@@ -71,10 +72,12 @@ let sessionNameInputElement: HTMLInputElement | null = null;
 let pasteInputElement: HTMLTextAreaElement | null = null;
 let pendingFitFrame = 0;
 let pendingSettledFitFrame = 0;
+let pendingFitForce = false;
 let lastResizeCols: number | null = null;
 let lastResizeRows: number | null = null;
 let pendingSyncRefreshSessions = false;
 let pendingSyncIgnoreHidden = false;
+let pendingSyncForceResize = false;
 
 terminal.onData((data) => {
   sendMessage({ type: "input", data });
@@ -609,7 +612,7 @@ async function connectTerminal(
       dispatch({ type: "setCurrentSession", sessionName: payload.sessionName });
       syncBrowserSession(payload.sessionName, options.historyMode ?? "push");
       await Promise.all([loadSessionState(), refreshSessionListIfStale(true)]);
-      scheduleFit();
+      scheduleFit({ force: true });
       return;
     }
 
@@ -702,6 +705,7 @@ async function splitPane(direction: "vertical" | "horizontal") {
   });
 
   replaceSessionState(response);
+  scheduleFit({ force: true });
 }
 
 async function selectWindow(windowIndex: number) {
@@ -715,6 +719,7 @@ async function selectWindow(windowIndex: number) {
   );
 
   replaceSessionState(response);
+  scheduleFit({ force: true });
   terminal.focus();
 }
 
@@ -751,7 +756,9 @@ function sendMessage(payload: Record<string, unknown>) {
   runtime.ws.send(JSON.stringify(payload));
 }
 
-function scheduleFit() {
+function scheduleFit(options: { force?: boolean } = {}) {
+  pendingFitForce = pendingFitForce || (options.force ?? false);
+
   if (pendingFitFrame || pendingSettledFitFrame) {
     return;
   }
@@ -761,6 +768,8 @@ function scheduleFit() {
 
     pendingSettledFitFrame = window.requestAnimationFrame(() => {
       pendingSettledFitFrame = 0;
+      const force = pendingFitForce;
+      pendingFitForce = false;
 
       const dimensions = fitTerminal();
 
@@ -768,7 +777,7 @@ function scheduleFit() {
         return;
       }
 
-      if (lastResizeCols === dimensions.cols && lastResizeRows === dimensions.rows) {
+      if (!force && lastResizeCols === dimensions.cols && lastResizeRows === dimensions.rows) {
         return;
       }
 
@@ -779,7 +788,8 @@ function scheduleFit() {
       sendMessage({
         type: "resize",
         cols: dimensions.cols,
-        rows: dimensions.rows
+        rows: dimensions.rows,
+        force: force || undefined
       });
     });
   });
@@ -789,9 +799,10 @@ async function syncCurrentSession() {
   return syncSession({ refreshSessions: false, ignoreHidden: false });
 }
 
-async function syncSession(options: { refreshSessions?: boolean; ignoreHidden?: boolean } = {}) {
+async function syncSession(options: { refreshSessions?: boolean; ignoreHidden?: boolean; forceResize?: boolean } = {}) {
   const refreshSessions = options.refreshSessions ?? false;
   const ignoreHidden = options.ignoreHidden ?? false;
+  const forceResize = options.forceResize ?? false;
 
   if (!state.currentSession || runtime.syncing || (!ignoreHidden && document.hidden)) {
     return;
@@ -813,6 +824,10 @@ async function syncSession(options: { refreshSessions?: boolean; ignoreHidden?: 
     if (!refreshSessions) {
       await refreshSessionListIfStale();
     }
+
+    if (forceResize) {
+      scheduleFit({ force: true });
+    }
   } finally {
     runtime.syncing = false;
   }
@@ -826,16 +841,18 @@ function clearPendingSync() {
 
   pendingSyncRefreshSessions = false;
   pendingSyncIgnoreHidden = false;
+  pendingSyncForceResize = false;
   runtime.syncing = false;
 }
 
-function requestSessionSync(options: { refreshSessions?: boolean; ignoreHidden?: boolean } = {}) {
+function requestSessionSync(options: { refreshSessions?: boolean; ignoreHidden?: boolean; forceResize?: boolean } = {}) {
   if (!state.currentSession) {
     return;
   }
 
   pendingSyncRefreshSessions = pendingSyncRefreshSessions || (options.refreshSessions ?? false);
   pendingSyncIgnoreHidden = pendingSyncIgnoreHidden || (options.ignoreHidden ?? false);
+  pendingSyncForceResize = pendingSyncForceResize || (options.forceResize ?? false);
 
   if (runtime.syncTimer) {
     return;
@@ -844,12 +861,14 @@ function requestSessionSync(options: { refreshSessions?: boolean; ignoreHidden?:
   runtime.syncTimer = window.setTimeout(() => {
     const refreshSessions = pendingSyncRefreshSessions;
     const ignoreHidden = pendingSyncIgnoreHidden;
+    const forceResize = pendingSyncForceResize;
 
     pendingSyncRefreshSessions = false;
     pendingSyncIgnoreHidden = false;
+    pendingSyncForceResize = false;
     runtime.syncTimer = 0;
 
-    void syncSession({ refreshSessions, ignoreHidden }).catch((error) => {
+    void syncSession({ refreshSessions, ignoreHidden, forceResize }).catch((error) => {
       reportError(error);
     });
   }, 0);
@@ -911,7 +930,8 @@ async function handleTmuxNotification(payload: TmuxNotificationPayload) {
 
   requestSessionSync({
     refreshSessions: payload.refreshSessions,
-    ignoreHidden: true
+    ignoreHidden: true,
+    forceResize: RESIZE_REASSERT_EVENTS.has(payload.event)
   });
 }
 
