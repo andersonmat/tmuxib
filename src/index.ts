@@ -54,7 +54,7 @@ const tmux = new TmuxService({
   defaultCwd: config.defaultCwd,
   sessionPrefix: config.sessionPrefix
 });
-const debugEnabled = process.env.DEBUG_REMOTE_TERMINAL === "1";
+const debugEnabled = process.env.DEBUG_TMUXIB === "1";
 const projectDirectory = process.cwd();
 const bridgeScriptPath = resolve(projectDirectory, "bin/pty-bridge.mjs");
 const terminalBridges = new Map<string, TerminalBridge>();
@@ -274,7 +274,7 @@ const server = Bun.serve<TerminalSocketData>({
   }
 });
 
-console.log(`remote-terminal listening on http://${server.hostname}:${server.port}`);
+console.log(`tmuxib listening on http://${server.hostname}:${server.port}`);
 
 async function attachTmuxClient(websocket: ServerWebSocket<TerminalSocketData>) {
   try {
@@ -522,6 +522,6 @@ function send(websocket: ServerWebSocket<TerminalSocketData>, payload: unknown) 
 
 function debug(...parts: Array<string | number>) {
   if (debugEnabled) {
-    console.log("[remote-terminal]", ...parts);
+    console.log("[tmuxib]", ...parts);
   }
 }

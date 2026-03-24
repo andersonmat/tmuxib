@@ -7,7 +7,7 @@ export const MIN_TERMINAL_FONT_SIZE = 11;
 export const MAX_TERMINAL_FONT_SIZE = 18;
 
 const terminalWindow = window as unknown as TerminalWindow;
-const fontSizeStorageKey = "remote-terminal:font-size";
+const fontSizeStorageKey = "tmuxib:font-size";
 const initialFontSize = readStoredTerminalFontSize();
 
 export const terminal = new terminalWindow.Terminal({

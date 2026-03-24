@@ -10,7 +10,7 @@ function shellQuote(value: string) {
 }
 
 function createFakeTmux() {
-  const directory = mkdtempSync(join(tmpdir(), "remote-terminal-tmux-"));
+  const directory = mkdtempSync(join(tmpdir(), "tmuxib-tmux-"));
   const binary = join(directory, "tmux");
   const stateFile = join(directory, "session.state");
   const logFile = join(directory, "commands.log");
@@ -73,7 +73,7 @@ function createTmuxService(binary: string) {
     binary,
     defaultShell: "/bin/bash",
     defaultCwd: "/tmp",
-    sessionPrefix: "rt"
+    sessionPrefix: "tmuxib"
   });
 }
 

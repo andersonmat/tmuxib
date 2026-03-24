@@ -25,7 +25,7 @@ export function normalizeSessionName(input: string | undefined, prefix: string) 
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "rt";
+    .replace(/^-+|-+$/g, "") || "tmuxib";
 
   return `${scopedPrefix}-${token()}`;
 }

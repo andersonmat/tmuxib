@@ -23,7 +23,7 @@ const pty = spawn(binary, args, {
     ...process.env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
-    TERM_PROGRAM: "remote-terminal"
+    TERM_PROGRAM: "tmuxib"
   }
 });
 

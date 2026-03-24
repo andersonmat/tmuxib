@@ -16,5 +16,5 @@ export const config = {
   defaultShell: process.env.DEFAULT_SHELL ?? process.env.SHELL ?? "/bin/bash",
   defaultCwd: resolve(process.env.DEFAULT_CWD ?? process.cwd()),
   tmuxBinary: process.env.TMUX_BIN ?? "tmux",
-  sessionPrefix: process.env.SESSION_PREFIX ?? "rt"
+  sessionPrefix: process.env.SESSION_PREFIX ?? "tmuxib"
 } as const;
