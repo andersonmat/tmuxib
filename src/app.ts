@@ -57,20 +57,11 @@ const tmux = new TmuxService({
   sessionPrefix: config.sessionPrefix
 });
 const debugEnabled = process.env.DEBUG_TMUXIB === "1";
-const projectDirectory = process.cwd();
-const bridgeScriptPath = resolve(projectDirectory, "bin/pty-bridge.mjs");
+const runtimeRoot = resolve(import.meta.dir, "..");
+const bridgeScriptPath = resolve(runtimeRoot, "bin/pty-bridge.mjs");
+const clientRoot = resolveClientRoot(runtimeRoot);
 const terminalBridges = new Map<string, TerminalBridge>();
 const controlMonitors = new Map<string, TmuxControlMonitor>();
-const publicRoot = resolve(projectDirectory, "public");
-const clientTranspiler = new Bun.Transpiler({
-  loader: "ts",
-  target: "browser"
-});
-const vendorFiles = new Map<string, string>([
-  ["/vendor/xterm.js", resolve(projectDirectory, "node_modules/@xterm/xterm/lib/xterm.js")],
-  ["/vendor/xterm.css", resolve(projectDirectory, "node_modules/@xterm/xterm/css/xterm.css")],
-  ["/vendor/xterm-addon-fit.js", resolve(projectDirectory, "node_modules/@xterm/addon-fit/lib/addon-fit.js")]
-]);
 
 const api = new Hono();
 const sessions = new Hono();
@@ -217,35 +208,49 @@ app.get(
   })
 );
 
-app.get("/vendor/:asset", (c) => {
-  const filePath = vendorFiles.get(`/vendor/${c.req.param("asset")}`);
-
-  if (!filePath) {
-    return c.json({ error: "Not found" }, 404);
-  }
-
-  return serveKnownFile(filePath);
-});
-
 app.get("/s/:sessionName", () => {
-  return serveKnownFile(resolve(publicRoot, "index.html"));
+  return serveClientEntry();
 });
 
-app.get("*", async (c) => {
+app.get("*", (c) => {
   const pathname = new URL(c.req.url).pathname;
-  const transpiledPath = resolvePublicTranspilePath(pathname);
 
-  if (transpiledPath) {
-    return serveTranspiledModule(transpiledPath);
+  if (pathname === "/") {
+    return serveClientEntry();
   }
 
-  const filePath = pathname === "/" ? resolve(publicRoot, "index.html") : resolve(publicRoot, `.${pathname}`);
-  if (existsSync(filePath)) {
+  const filePath = resolveClientPath(pathname);
+  if (filePath && existsSync(filePath)) {
     return serveKnownFile(filePath);
   }
 
   return c.json({ error: "Not found" }, 404);
 });
+
+function resolveClientRoot(root: string) {
+  const candidates = [
+    resolve(root, ".client/public"),
+    resolve(root, "public")
+  ];
+
+  return candidates.find((candidate) => existsSync(resolve(candidate, "index.html"))) ?? candidates[1];
+}
+
+function resolveClientPath(pathname: string) {
+  const relativePath = pathname.startsWith("/") ? pathname.slice(1) : pathname;
+  const filePath = resolve(clientRoot, relativePath);
+  const normalizedRoot = `${clientRoot}/`;
+
+  if (filePath === clientRoot || filePath.startsWith(normalizedRoot)) {
+    return filePath;
+  }
+
+  return null;
+}
+
+function serveClientEntry() {
+  return serveKnownFile(resolve(clientRoot, "index.html"));
+}
 
 function createTerminalSocketEvents(input: { requestedSessionName: string | undefined; cwd: string }) {
   const socketData: TerminalSocketData = {
@@ -300,7 +305,7 @@ async function attachTmuxClient(socket: WSContext, socketData: TerminalSocketDat
       config.nodeBinary,
       [bridgeScriptPath, config.tmuxBinary, JSON.stringify(tmux.attachArgs(socketData.sessionName)), socketData.cwd],
       {
-        cwd: projectDirectory,
+        cwd: runtimeRoot,
         env: process.env,
         stdio: ["pipe", "pipe", "pipe"]
       }
@@ -415,33 +420,6 @@ function cleanupSocket(clientId: string) {
 
 function serveKnownFile(filePath: string) {
   return new Response(Bun.file(filePath));
-}
-
-function serveTranspiledModule(filePath: string) {
-  const source = Bun.file(filePath).text();
-  return source.then((contents) => {
-    const transpiled = clientTranspiler.transformSync(contents);
-
-    return new Response(transpiled, {
-      headers: {
-        "content-type": "application/javascript; charset=utf-8"
-      }
-    });
-  });
-}
-
-function resolvePublicTranspilePath(pathname: string) {
-  if (pathname.endsWith(".js")) {
-    const sourcePath = resolve(publicRoot, `.${pathname.slice(0, -3)}.ts`);
-    return existsSync(sourcePath) ? sourcePath : null;
-  }
-
-  if (pathname.endsWith(".ts")) {
-    const sourcePath = resolve(publicRoot, `.${pathname}`);
-    return existsSync(sourcePath) ? sourcePath : null;
-  }
-
-  return null;
 }
 
 async function readJson(request: Request) {

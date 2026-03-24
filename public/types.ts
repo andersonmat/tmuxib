@@ -25,60 +25,6 @@ export interface PaneSummary {
   title: string;
 }
 
-export interface TerminalOptions {
-  cursorBlink: boolean;
-  fontFamily: string;
-  fontSize: number;
-  lineHeight: number;
-  scrollback: number;
-  theme: {
-    background: string;
-    foreground: string;
-    cursor: string;
-    cursorAccent: string;
-    selectionBackground: string;
-  };
-}
-
-export interface FitAddonLike {
-  fit(): void;
-}
-
-export interface XTermLike {
-  loadAddon(addon: FitAddonLike): void;
-  open(element: HTMLElement): void;
-  focus(): void;
-  onData(listener: (data: string) => void): void;
-  attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void;
-  hasSelection(): boolean;
-  getSelection(): string;
-  selectAll(): void;
-  paste(data: string): void;
-  write(data: string): void;
-  writeln(data: string): void;
-  clear(): void;
-  resize(cols: number, rows: number): void;
-  options: {
-    fontSize: number;
-    letterSpacing?: number;
-  };
-  cols: number;
-  rows: number;
-}
-
-export interface TerminalConstructor {
-  new(options: TerminalOptions): XTermLike;
-}
-
-export interface FitAddonNamespace {
-  FitAddon: new() => FitAddonLike;
-}
-
-export interface TerminalWindow extends Window {
-  Terminal: TerminalConstructor;
-  FitAddon: FitAddonNamespace;
-}
-
 export interface DisconnectOptions {
   preserveTerminal?: boolean;
   suppressReconnect?: boolean;

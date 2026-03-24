@@ -1,6 +1,6 @@
 # tmuxib
 
-`tmuxib` is a local-first `tmux in browser` server built with Bun, Hono, `tmux`, `node-pty`, and `xterm.js`.
+`tmuxib` is a local-first `tmux in browser` server built with Bun, Hono, Preact, `tmux`, `node-pty`, and `xterm.js`.
 It serves the real `tmux` client UI over WebSocket, so the browser is attached to an actual session instead of a fake shell emulator.
 
 ## What it does
@@ -29,15 +29,30 @@ bun run dev
 
 Open `http://127.0.0.1:3000` in a browser.
 
+`bun run dev` does two things:
+
+- builds a standalone client bundle into `.client/public/index.html`
+- starts the Bun server in watch mode
+
+If you want a one-shot local run without the dev watcher:
+
+```bash
+bun run start
+```
+
 ## Scripts
 
 ```bash
 bun run dev
+bun run dev:client
+bun run dev:server
 bun run start
 bun run build
 bun run check
 bun run test
 ```
+
+`bun run build` writes a shippable client bundle to `dist/public/index.html`, bundles the server to `dist/server/index.js`, and copies the PTY bridge to `dist/bin/pty-bridge.mjs`.
 
 ## Environment
 

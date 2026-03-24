@@ -1,16 +1,16 @@
-import { terminalElement } from "./dom.js";
-import type { TerminalWindow, XTermLike } from "./types.js";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
 
 export const protocol = window.location.protocol === "https:" ? "wss" : "ws";
 export const DEFAULT_TERMINAL_FONT_SIZE = 13;
 export const MIN_TERMINAL_FONT_SIZE = 11;
 export const MAX_TERMINAL_FONT_SIZE = 18;
 
-const terminalWindow = window as unknown as TerminalWindow;
 const fontSizeStorageKey = "tmuxib:font-size";
 const initialFontSize = readStoredTerminalFontSize();
 
-export const terminal = new terminalWindow.Terminal({
+export const terminal = new Terminal({
   cursorBlink: true,
   fontFamily: '"IBM Plex Mono", "Aptos Mono", "Cascadia Mono", monospace',
   fontSize: initialFontSize,
@@ -27,14 +27,15 @@ export const terminal = new terminalWindow.Terminal({
   }
 });
 
-export const fitAddon = new terminalWindow.FitAddon.FitAddon();
+const fitAddon = new FitAddon();
+const isApplePlatform = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
+let mountedElement: HTMLDivElement | null = null;
+let clipboardBindingsInstalled = false;
 
 terminal.loadAddon(fitAddon);
-terminal.open(terminalElement);
-installClipboardBindings();
 
-interface InternalTerminal extends XTermLike {
-  element?: HTMLElement;
+type InternalTerminal = Terminal & {
   _core?: {
     _renderService: {
       clear(): void;
@@ -48,9 +49,21 @@ interface InternalTerminal extends XTermLike {
       };
     };
   };
-}
+};
 
-const isApplePlatform = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+export function mountTerminal(element: HTMLDivElement | null) {
+  if (!element || element === mountedElement) {
+    return;
+  }
+
+  mountedElement = element;
+  terminal.open(element);
+
+  if (!clipboardBindingsInstalled) {
+    installClipboardBindings(element);
+    clipboardBindingsInstalled = true;
+  }
+}
 
 export function clampTerminalFontSize(fontSize: number) {
   return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(fontSize)));
@@ -127,7 +140,7 @@ export function fitTerminal() {
   }
 }
 
-function installClipboardBindings() {
+function installClipboardBindings(element: HTMLDivElement) {
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") {
       return true;
@@ -154,7 +167,7 @@ function installClipboardBindings() {
     return true;
   });
 
-  terminalElement.addEventListener("copy", (event) => {
+  element.addEventListener("copy", (event) => {
     if (!terminal.hasSelection() || !event.clipboardData) {
       return;
     }
@@ -164,7 +177,7 @@ function installClipboardBindings() {
     event.stopPropagation();
   }, { capture: true });
 
-  terminalElement.addEventListener("paste", (event) => {
+  element.addEventListener("paste", (event) => {
     const text = event.clipboardData?.getData("text/plain");
 
     if (typeof text !== "string") {
@@ -271,13 +284,12 @@ export async function pasteFromClipboard() {
 
     if (!text) {
       terminal.focus();
-      return false;
+      return true;
     }
 
     pasteTerminalText(text);
     return true;
   } catch {
-    terminal.focus();
     return false;
   }
 }

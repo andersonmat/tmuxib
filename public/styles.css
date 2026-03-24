@@ -262,19 +262,36 @@ select:disabled {
 }
 
 .font-controls {
-  padding: 0.12rem;
+  padding: 0;
   border: 1px solid var(--line);
   background: rgba(23, 24, 32, 0.9);
+  overflow: hidden;
+  min-height: 2.15rem;
 }
 
 .font-controls .square {
   width: 1.95rem;
   min-width: 1.95rem;
-  min-height: 1.95rem;
+  min-height: calc(2.15rem - 2px);
+  border-top: 0;
+  border-bottom: 0;
+}
+
+.font-controls .square:first-child {
+  border-left: 0;
+}
+
+.font-controls .square:last-child {
+  border-right: 0;
 }
 
 .font-size-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 3rem;
+  min-height: calc(2.15rem - 2px);
+  padding: 0 0.38rem;
   color: var(--muted);
   text-align: center;
   font-size: 0.74rem;
