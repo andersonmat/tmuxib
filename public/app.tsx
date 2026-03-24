@@ -1,5 +1,6 @@
 import { render, type JSX } from "preact";
 
+import { nextSessionNameAfterRemoval, stableSessions } from "./session-order.js";
 import { createInitialRuntime, createInitialState, currentWindowIndex, paneLabel, reduceState, visiblePanes } from "./state.js";
 import "./styles.css";
 import {
@@ -423,18 +424,31 @@ async function bootstrap() {
 }
 
 async function loadSessions() {
+  const previousSessions = state.sessions;
+  const previousCurrentSession = state.currentSession;
   const { sessions } = await api<{ sessions: SessionSummary[] }>("/api/sessions");
   runtime.lastSessionListSyncAt = Date.now();
 
-  if (state.currentSession) {
-    const stillExists = sessions.some((session) => session.name === state.currentSession);
+  dispatch({ type: "sessionsLoaded", sessions });
 
-    if (!stillExists) {
-      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true });
-    }
+  if (!previousCurrentSession || state.currentSession !== previousCurrentSession) {
+    return;
   }
 
-  dispatch({ type: "sessionsLoaded", sessions });
+  const stillExists = sessions.some((session) => session.name === previousCurrentSession);
+
+  if (stillExists) {
+    return;
+  }
+
+  const fallbackSessionName = nextSessionNameAfterRemoval(previousSessions, sessions, previousCurrentSession);
+
+  if (fallbackSessionName) {
+    await openSession(fallbackSessionName, { preserveTerminal: true, historyMode: "replace" });
+    return;
+  }
+
+  disconnectTerminal({ preserveTerminal: true, suppressReconnect: true });
 }
 
 async function loadSessionState() {
@@ -448,7 +462,6 @@ async function loadSessionState() {
     replaceSessionState(sessionState);
   } catch (error) {
     if (readErrorStatus(error) === 404) {
-      disconnectTerminal({ preserveTerminal: true, suppressReconnect: true });
       await loadSessions();
       return;
     }
@@ -810,6 +823,10 @@ async function handleTerminalExit(ws: WebSocket, sessionName: string, exitCode: 
   try {
     await loadSessions();
 
+    if (state.currentSession && state.currentSession !== reconnectSession) {
+      return;
+    }
+
     const sessionStillExists = state.sessions.some((session) => session.name === reconnectSession);
     if (sessionStillExists) {
       await connectTerminal(reconnectSession, { preserveTerminal: true, historyMode: "replace" });
@@ -960,17 +977,6 @@ function currentSessionContext(
     session: currentSession,
     detail: `${activeWindow ? `${activeWindow.index}:${activeWindow.name}` : "No window"} · ${activePane ? activePane.command || paneLabel(activePane) : "No command"}`
   };
-}
-
-const sessionNameCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: "base"
-});
-
-function stableSessions(sessions: SessionSummary[]) {
-  return [...sessions].sort((left, right) => {
-    return sessionNameCollator.compare(left.name, right.name);
-  });
 }
 
 function bindWorkspace(element: HTMLElement | null) {
