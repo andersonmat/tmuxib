@@ -69,6 +69,8 @@ let workspaceElement: HTMLElement | null = null;
 let terminalFrameElement: HTMLDivElement | null = null;
 let sessionNameInputElement: HTMLInputElement | null = null;
 let pasteInputElement: HTMLTextAreaElement | null = null;
+let pendingFitFrame = 0;
+let pendingSettledFitFrame = 0;
 
 terminal.onData((data) => {
   sendMessage({ type: "input", data });
@@ -692,13 +694,26 @@ function sendMessage(payload: Record<string, unknown>) {
 }
 
 function scheduleFit() {
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => {
-      fitTerminal();
+  if (pendingFitFrame || pendingSettledFitFrame) {
+    return;
+  }
+
+  pendingFitFrame = window.requestAnimationFrame(() => {
+    pendingFitFrame = 0;
+
+    pendingSettledFitFrame = window.requestAnimationFrame(() => {
+      pendingSettledFitFrame = 0;
+
+      const dimensions = fitTerminal();
+
+      if (!dimensions) {
+        return;
+      }
+
       sendMessage({
         type: "resize",
-        cols: terminal.cols,
-        rows: terminal.rows
+        cols: dimensions.cols,
+        rows: dimensions.rows
       });
     });
   });

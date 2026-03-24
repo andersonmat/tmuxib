@@ -75,12 +75,14 @@ export function maybeRunBridgeProcess(argv = process.argv) {
       TERM_PROGRAM: "tmuxib"
     }
   });
+  let ptyExited = false;
 
   pty.onData((data) => {
     send({ type: "data", data });
   });
 
   pty.onExit(({ exitCode, signal }) => {
+    ptyExited = true;
     send({ type: "exit", exitCode, signal });
     process.exit(0);
   });
@@ -107,6 +109,10 @@ export function maybeRunBridgeProcess(argv = process.argv) {
       try {
         const message = JSON.parse(line) as InputMessage | ResizeMessage;
 
+        if (ptyExited) {
+          continue;
+        }
+
         if (message.type === "input" && typeof message.data === "string") {
           pty.write(message.data);
         }
@@ -117,6 +123,10 @@ export function maybeRunBridgeProcess(argv = process.argv) {
           pty.resize(cols, rows);
         }
       } catch (error) {
+        if (isIgnorablePtyError(error)) {
+          continue;
+        }
+
         send({
           type: "error",
           message: error instanceof Error ? error.message : "invalid bridge message"
@@ -127,7 +137,9 @@ export function maybeRunBridgeProcess(argv = process.argv) {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      pty.kill();
+      if (!ptyExited) {
+        pty.kill();
+      }
       process.exit(0);
     });
   }
@@ -142,4 +154,8 @@ function isCompiledExecutable(bunMain: string) {
 
 function send(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
+}
+
+function isIgnorablePtyError(error: unknown) {
+  return error instanceof Error && /(EBADF|EPIPE|ioctl\(2\) failed)/i.test(error.message);
 }

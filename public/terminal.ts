@@ -114,30 +114,40 @@ export function fitTerminal() {
     return;
   }
 
-  const parentStyle = window.getComputedStyle(parentElement);
-  const parentHeight = parseInt(parentStyle.getPropertyValue("height"), 10);
-  const parentWidth = Math.max(0, parseInt(parentStyle.getPropertyValue("width"), 10));
   const elementStyle = window.getComputedStyle(element);
-  const paddingTop = parseInt(elementStyle.getPropertyValue("padding-top"), 10);
-  const paddingBottom = parseInt(elementStyle.getPropertyValue("padding-bottom"), 10);
-  const paddingLeft = parseInt(elementStyle.getPropertyValue("padding-left"), 10);
-  const paddingRight = parseInt(elementStyle.getPropertyValue("padding-right"), 10);
-  const availableHeight = parentHeight - (paddingTop + paddingBottom);
-  const availableWidth = parentWidth - (paddingLeft + paddingRight);
-  const currentLetterSpacing = internalTerminal.options.letterSpacing ?? 0;
-  const baseCellWidth = Math.max(1, cellWidth - currentLetterSpacing);
-  const cols = Math.max(2, Math.floor(availableWidth / baseCellWidth));
-  const rows = Math.max(1, Math.floor(availableHeight / cellHeight));
-  const nextLetterSpacing = Math.max(0, (availableWidth - cols * baseCellWidth) / cols);
+  const paddingTop = readPixels(elementStyle, "padding-top");
+  const paddingBottom = readPixels(elementStyle, "padding-bottom");
+  const paddingLeft = readPixels(elementStyle, "padding-left");
+  const paddingRight = readPixels(elementStyle, "padding-right");
+  const availableHeight = parentElement.clientHeight - (paddingTop + paddingBottom);
+  const availableWidth = parentElement.clientWidth - (paddingLeft + paddingRight);
 
-  if (Math.abs(currentLetterSpacing - nextLetterSpacing) > 0.001) {
-    internalTerminal.options.letterSpacing = nextLetterSpacing;
+  if (!Number.isFinite(availableWidth) || !Number.isFinite(availableHeight) || availableWidth <= 0 || availableHeight <= 0) {
+    return;
+  }
+
+  const cols = Math.floor(availableWidth / cellWidth);
+  const rows = Math.floor(availableHeight / cellHeight);
+
+  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1) {
+    return;
+  }
+
+  if ((internalTerminal.options.letterSpacing ?? 0) !== 0) {
+    internalTerminal.options.letterSpacing = 0;
   }
 
   if (internalTerminal.cols !== cols || internalTerminal.rows !== rows) {
     renderService.clear();
     internalTerminal.resize(cols, rows);
   }
+
+  return { cols, rows };
+}
+
+function readPixels(style: CSSStyleDeclaration, property: string) {
+  const value = Number.parseFloat(style.getPropertyValue(property));
+  return Number.isFinite(value) ? value : 0;
 }
 
 function installClipboardBindings(element: HTMLDivElement) {
