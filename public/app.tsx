@@ -139,7 +139,6 @@ function AppView(props: { state: ClientState }) {
           <div id="session-controls" class="topbar-main">
             <div class="session-cluster">
               <div class="session-context" aria-live="polite">
-                <span class="session-context-label">Where you are</span>
                 <div class={`session-context-primary${sessionContext.hasSession ? "" : " is-empty"}`}>
                   {sessionContext.session}
                 </div>

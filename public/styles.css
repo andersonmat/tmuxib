@@ -171,14 +171,6 @@ select:disabled {
   min-width: 0;
 }
 
-.session-context-label {
-  color: var(--muted);
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .session-context-primary,
 .session-context-secondary {
   min-width: 0;
