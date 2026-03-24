@@ -1,6 +1,6 @@
 # tmuxib
 
-`tmuxib` is a local-first `tmux in browser` server built with Bun, `tmux`, `node-pty`, and `xterm.js`.
+`tmuxib` is a local-first `tmux in browser` server built with Bun, Hono, `tmux`, `node-pty`, and `xterm.js`.
 It serves the real `tmux` client UI over WebSocket, so the browser is attached to an actual session instead of a fake shell emulator.
 
 ## What it does
