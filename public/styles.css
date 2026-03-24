@@ -136,6 +136,8 @@ select:disabled {
 .topbar-main {
   justify-content: space-between;
   flex-wrap: wrap;
+  padding-bottom: 0.34rem;
+  border-bottom: 1px solid rgba(68, 71, 90, 0.88);
 }
 
 .session-cluster {
