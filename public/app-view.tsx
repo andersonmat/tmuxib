@@ -14,7 +14,6 @@ export interface AppViewProps {
   onCreateSessionCancel(): void;
   onOpenSession(sessionName: string): void;
   onPasteToggle(): void;
-  onSplitPane(direction: "vertical" | "horizontal"): void;
   onUpdateTerminalFontSize(fontSize: number): void;
   onPasteSubmit(event: Event): void;
   onPasteCancel(): void;
@@ -99,28 +98,6 @@ export function AppView(props: AppViewProps) {
                   }}
                 >
                   Paste
-                </button>
-                <button
-                  id="split-vertical-button"
-                  class="ghost"
-                  type="button"
-                  disabled={!hasSession}
-                  onClick={() => {
-                    props.onSplitPane("vertical");
-                  }}
-                >
-                  Below
-                </button>
-                <button
-                  id="split-horizontal-button"
-                  class="ghost"
-                  type="button"
-                  disabled={!hasSession}
-                  onClick={() => {
-                    props.onSplitPane("horizontal");
-                  }}
-                >
-                  Right
                 </button>
               </div>
             </div>

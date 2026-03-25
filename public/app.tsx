@@ -154,9 +154,6 @@ function renderView() {
       onPasteToggle={reportActionError(async () => {
         await togglePasteComposer();
       })}
-      onSplitPane={reportActionError(async (direction: "vertical" | "horizontal") => {
-        await splitPane(direction);
-      })}
       onUpdateTerminalFontSize={updateTerminalFontSize}
       onPasteSubmit={reportActionError(async (event: Event) => {
         event.preventDefault();
@@ -513,25 +510,6 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
   if (!resolvedOptions.preserveTerminal) {
     terminal.clear();
   }
-}
-
-async function splitPane(direction: "vertical" | "horizontal") {
-  const sessionName = state.currentSession;
-
-  if (!sessionName) {
-    return;
-  }
-
-  const response = await api<SessionStatePayload>(`/api/sessions/${encodeURIComponent(sessionName)}/panes`, {
-    method: "POST",
-    body: JSON.stringify({
-      direction,
-      targetPane: state.currentPane ?? undefined
-    })
-  });
-
-  replaceSessionState(sessionName, response);
-  scheduleFit({ force: true });
 }
 
 async function selectWindow(windowIndex: number) {
