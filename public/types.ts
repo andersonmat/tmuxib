@@ -1,3 +1,5 @@
+export type { TmuxNotificationPayload } from "../shared/tmux-events.js";
+
 export interface SessionSummary {
   name: string;
   windows: number;
@@ -48,20 +50,10 @@ export interface ApiError extends Error {
   status?: number;
 }
 
-export interface TmuxNotificationPayload {
-  type: "tmux";
-  event: string;
-  refreshState: boolean;
-  refreshSessions: boolean;
-  sessionName?: string;
-}
-
 export interface RuntimeState {
   ws: WebSocket | null;
   reconnecting: boolean;
   suppressedSocket: WebSocket | null;
-  syncTimer: number;
-  syncing: boolean;
   lastSessionListSyncAt: number;
   lastLocalResizeAt: number;
 }

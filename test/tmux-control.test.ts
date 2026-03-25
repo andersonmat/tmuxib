@@ -31,4 +31,15 @@ describe("parseTmuxControlNotification", () => {
       refreshSessions: true
     });
   });
+
+  test("carries resize semantics for window changes in the shared event policy", () => {
+    expect(parseTmuxControlNotification("%session-window-changed $1 @2")).toEqual({
+      type: "tmux",
+      event: "session-window-changed",
+      refreshState: true,
+      refreshSessions: false,
+      ignoreResizeEcho: true,
+      forceResize: true
+    });
+  });
 });

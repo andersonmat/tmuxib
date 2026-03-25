@@ -24,6 +24,7 @@
     "src/**/*.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
+    "shared/**/*.ts",
     "public/**/*.ts",
     "public/**/*.tsx"
   ]

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import type { InputMessage, ResizeMessage } from "../shared/terminal-protocol";
 import { spawn as spawnPty } from "./node-pty";
 
 const bridgeFlag = "--pty-bridge";
@@ -11,17 +12,6 @@ const sourceBridgeScriptPath = resolve(import.meta.dir, "..", "bin", "pty-bridge
 const activePtys = new Set<object>();
 const compiledHelperName = "tmuxib-pty-helper";
 let compiledBridgeCommand: string | null = null;
-
-interface InputMessage {
-  type: "input";
-  data: string;
-}
-
-interface ResizeMessage {
-  type: "resize";
-  cols: number;
-  rows: number;
-}
 
 interface BridgeRuntime {
   bunMain: string;

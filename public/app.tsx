@@ -1,19 +1,22 @@
-import { render, type JSX } from "preact";
+import { render } from "preact";
 
+import { AppView } from "./app-view.js";
 import { DEFAULT_CONNECTION_ISSUE, getConnectionIssueMessage, LOST_CONNECTION_ISSUE } from "./connection-issue.js";
 import { nextSessionNameAfterRemoval, stableSessions } from "./session-order.js";
-import { createInitialRuntime, createInitialState, currentWindowIndex, paneLabel, reduceState, visiblePanes } from "./state.js";
+import { SessionRequestTracker } from "./session-request-tracker.js";
+import { SessionSyncController } from "./session-sync.js";
+import { createInitialRuntime, createInitialState, reduceState } from "./state.js";
 import "./styles.css";
 import {
   applyTerminalFontSize,
   fitTerminal,
-  mountTerminal,
   pasteFromClipboard,
   pasteTerminalText,
   protocol,
   readStoredTerminalFontSize,
   terminal
 } from "./terminal.js";
+import type { SocketPayload } from "../shared/terminal-protocol.js";
 import type {
   ApiError,
   ClientState,
@@ -25,36 +28,12 @@ import type {
   TmuxNotificationPayload,
   WindowSummary
 } from "./types.js";
-
-interface ReadyPayload {
-  type: "ready";
-  sessionName: string;
-}
-
-interface DataPayload {
-  type: "data";
-  data: string;
-}
-
-interface ErrorPayload {
-  type: "error";
-  message?: string;
-}
-
-interface ExitPayload {
-  type: "exit";
-  exitCode?: number;
-}
-
-type SocketPayload = ReadyPayload | DataPayload | ErrorPayload | ExitPayload | TmuxNotificationPayload;
 type SessionStatePayload = { windows: WindowSummary[]; panes: PaneSummary[] };
 type HistoryMode = NonNullable<DisconnectOptions["historyMode"]>;
 
 const SESSION_LIST_SYNC_INTERVAL_MS = 5000;
 const SESSION_ROUTE_PREFIX = "/s/";
 const LOCAL_RESIZE_ECHO_WINDOW_MS = 250;
-const RESIZE_ECHO_EVENTS = new Set(["session-window-changed", "window-pane-changed"]);
-const RESIZE_REASSERT_EVENTS = new Set(["window-add", "session-window-changed"]);
 
 const rootElement = requireElement<HTMLDivElement>("app");
 
@@ -75,15 +54,37 @@ let pendingSettledFitFrame = 0;
 let pendingFitForce = false;
 let lastResizeCols: number | null = null;
 let lastResizeRows: number | null = null;
-let pendingSyncRefreshSessions = false;
-let pendingSyncIgnoreHidden = false;
-let pendingSyncForceResize = false;
+const sessionRequests = new SessionRequestTracker();
+
+const sessionSync = new SessionSyncController({
+  getHasCurrentSession() {
+    return Boolean(state.currentSession);
+  },
+  getIsDocumentHidden() {
+    return document.hidden;
+  },
+  async loadSessions() {
+    await loadSessions();
+  },
+  async loadSessionState() {
+    await loadSessionState();
+  },
+  async refreshSessionListIfStale() {
+    await refreshSessionListIfStale();
+  },
+  scheduleForceResize() {
+    scheduleFit({ force: true });
+  },
+  reportError(error: unknown) {
+    reportError(error);
+  }
+});
 
 terminal.onData((data) => {
   sendMessage({ type: "input", data });
 });
 
-document.addEventListener("visibilitychange", handleAction(async () => {
+document.addEventListener("visibilitychange", reportActionError(async () => {
   if (!document.hidden) {
     await syncCurrentSession();
   }
@@ -93,7 +94,7 @@ window.addEventListener("load", () => {
   scheduleFit();
 });
 
-window.addEventListener("popstate", handleAction(async () => {
+window.addEventListener("popstate", reportActionError(async () => {
   const sessionName = readSessionFromLocation();
 
   if (!sessionName) {
@@ -128,307 +129,51 @@ function dispatch(action: StateAction) {
 }
 
 function renderView() {
-  render(<AppView state={state} />, rootElement);
-}
-
-function AppView(props: { state: ClientState }) {
-  const stableSessionEntries = stableSessions(props.state.sessions);
-  const activeWindowIndex = currentWindowIndex(props.state.windows);
-  const paneEntries = visiblePanes(props.state.panes, props.state.windows);
-  const activePaneId = props.state.currentPane ?? paneEntries[0]?.id ?? null;
-  const activeWindow = props.state.windows.find((entry) => entry.index === activeWindowIndex) ?? props.state.windows[0] ?? null;
-  const activePane = paneEntries.find((pane) => pane.id === activePaneId) ?? paneEntries[0] ?? null;
-  const sessionContext = currentSessionContext(props.state.currentSession, activeWindow, activePane);
-  const hasSession = Boolean(props.state.currentSession);
-
-  return (
-    <div class="shell">
-      <header id="session-panel" class="topbar" data-creating={String(props.state.creatingSession)}>
-        <div class="topbar-shell">
-          <div id="session-controls" class="topbar-main">
-            <div class="session-cluster">
-              <div class="session-context" aria-live="polite">
-                <div class={`session-context-primary${sessionContext.hasSession ? "" : " is-empty"}`}>
-                  {sessionContext.session}
-                </div>
-                <div class={`session-context-secondary${sessionContext.hasSession ? "" : " is-empty"}`}>
-                  {sessionContext.detail}
-                </div>
-              </div>
-            </div>
-            <div class="toolbar-cluster">
-              <button
-                id="create-toggle-button"
-                class="ghost create-toggle-button"
-                type="button"
-                data-active={String(props.state.creatingSession)}
-                aria-expanded={props.state.creatingSession}
-                onClick={() => {
-                  setCreateFormVisible(!props.state.creatingSession);
-                }}
-              >
-                Create Session
-              </button>
-              <div class="font-controls" role="group" aria-label="Terminal font size">
-                <button
-                  id="font-size-decrease-button"
-                  class="ghost square"
-                  type="button"
-                  aria-label="Decrease terminal font size"
-                  disabled={props.state.terminalFontSize <= 11}
-                  onClick={() => {
-                    updateTerminalFontSize(props.state.terminalFontSize - 1);
-                  }}
-                >
-                  A-
-                </button>
-                <span id="font-size-value" class="font-size-value">{props.state.terminalFontSize}px</span>
-                <button
-                  id="font-size-increase-button"
-                  class="ghost square"
-                  type="button"
-                  aria-label="Increase terminal font size"
-                  disabled={props.state.terminalFontSize >= 18}
-                  onClick={() => {
-                    updateTerminalFontSize(props.state.terminalFontSize + 1);
-                  }}
-                >
-                  A+
-                </button>
-              </div>
-              <div class="pane-actions">
-                <button
-                  id="paste-button"
-                  class="ghost mobile-only"
-                  type="button"
-                  aria-expanded={props.state.showingPasteComposer}
-                  disabled={!hasSession}
-                  onClick={handleAction(async () => {
-                    if (!props.state.currentSession) {
-                      return;
-                    }
-
-                    const pasted = await pasteFromClipboard();
-
-                    if (pasted) {
-                      setPasteComposerVisible(false);
-                      return;
-                    }
-
-                    setPasteComposerVisible(true);
-                  })}
-                >
-                  Paste
-                </button>
-                <button
-                  id="split-vertical-button"
-                  class="ghost"
-                  type="button"
-                  disabled={!hasSession}
-                  onClick={handleAction(async () => {
-                    await splitPane("vertical");
-                  })}
-                >
-                  Below
-                </button>
-                <button
-                  id="split-horizontal-button"
-                  class="ghost"
-                  type="button"
-                  disabled={!hasSession}
-                  onClick={handleAction(async () => {
-                    await splitPane("horizontal");
-                  })}
-                >
-                  Right
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {props.state.connectionIssue ? (
-            <div class="connection-banner" role="status" aria-live="polite">
-              <div class="connection-banner-copy">
-                <span class="connection-banner-label">Connection</span>
-                <span class="connection-banner-message">{props.state.connectionIssue}</span>
-              </div>
-              <button
-                id="retry-connection-button"
-                class="ghost"
-                type="button"
-                onClick={handleAction(async () => {
-                  await retryConnection();
-                })}
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
-
-          <form
-            id="session-form"
-            class={`session-form${props.state.creatingSession ? "" : " hidden"}`}
-            onSubmit={handleAction(async (event) => {
-              event.preventDefault();
-
-              const payload = {
-                name: sessionNameInputElement?.value.trim() || undefined
-              };
-
-              const { session } = await api<{ session: SessionSummary }>("/api/sessions", {
-                method: "POST",
-                body: JSON.stringify(payload)
-              });
-
-              if (sessionNameInputElement) {
-                sessionNameInputElement.value = "";
-              }
-
-              setCreateFormVisible(false);
-              await loadSessions();
-              await openSession(session.name, { preserveTerminal: true, historyMode: "push" });
-            })}
-          >
-            <input
-              id="session-name-input"
-              name="sessionName"
-              type="text"
-              placeholder="new session"
-              autocomplete="off"
-              aria-label="Session name"
-              ref={bindSessionNameInput}
-            />
-            <div class="create-actions">
-              <button id="create-session-button" class="primary" type="submit">Create</button>
-              <button
-                id="create-cancel-button"
-                class="ghost"
-                type="button"
-                onClick={() => {
-                  setCreateFormVisible(false);
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-
-          <div id="session-list" class="session-list">
-            {stableSessionEntries.map((session) => (
-              <button
-                key={session.name}
-                class="session-chip"
-                type="button"
-                data-active={String(session.name === props.state.currentSession)}
-                aria-pressed={session.name === props.state.currentSession}
-                onClick={handleAction(async () => {
-                  await openSession(session.name, { preserveTerminal: true, historyMode: "push" });
-                })}
-              >
-                <span class="session-chip-name">{session.name}</span>
-                <span class="session-chip-count">{session.windows}</span>
-              </button>
-            ))}
-          </div>
-
-          <form
-            id="paste-form"
-            class={`paste-form mobile-only${props.state.showingPasteComposer ? "" : " hidden"}`}
-            onSubmit={handleAction(async (event) => {
-              event.preventDefault();
-
-              if (!props.state.currentSession) {
-                return;
-              }
-
-              const text = pasteInputElement?.value ?? "";
-
-              if (!text) {
-                setPasteComposerVisible(false);
-                terminal.focus();
-                return;
-              }
-
-              pasteTerminalText(text);
-
-              if (pasteInputElement) {
-                pasteInputElement.value = "";
-              }
-
-              setPasteComposerVisible(false);
-            })}
-          >
-            <textarea
-              id="paste-input"
-              name="pasteInput"
-              rows={4}
-              placeholder="paste"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck={false}
-              aria-label="Paste terminal input"
-              ref={bindPasteInput}
-            />
-            <div class="create-actions">
-              <button id="paste-send-button" class="primary" type="submit" disabled={!hasSession}>Send</button>
-              <button
-                id="paste-cancel-button"
-                class="ghost"
-                type="button"
-                onClick={() => {
-                  setPasteComposerVisible(false);
-                  terminal.focus();
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      </header>
-
-      <main class="workspace">
-        <div class="tab-strip tab-strip-window">
-          <div id="window-tabs" class="tab-list">
-            {props.state.windows.map((windowEntry) => (
-              <button
-                key={`${windowEntry.sessionName}:${windowEntry.index}`}
-                class="tab"
-                type="button"
-                data-active={windowEntry.index === activeWindowIndex ? "true" : undefined}
-                onClick={handleAction(async () => {
-                  await selectWindow(windowEntry.index);
-                })}
-              >
-                {windowEntry.index}:{windowEntry.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div class="tab-strip tab-strip-pane">
-          <div id="pane-tabs" class="tab-list">
-            {paneEntries.map((pane) => (
-              <button
-                key={pane.id}
-                class="tab"
-                type="button"
-                data-active={pane.id === activePaneId ? "true" : undefined}
-                onClick={handleAction(async () => {
-                  await selectPane(pane.id);
-                })}
-              >
-                {paneLabel(pane)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div id="terminal-frame" class="terminal-frame" ref={bindTerminalFrame}>
-          <div id="terminal" ref={mountTerminal}></div>
-        </div>
-      </main>
-    </div>
+  render(
+    <AppView
+      state={state}
+      terminalFrameRef={bindTerminalFrame}
+      sessionNameInputRef={bindSessionNameInput}
+      pasteInputRef={bindPasteInput}
+      onToggleCreateForm={() => {
+        setCreateFormVisible(!state.creatingSession);
+      }}
+      onRetryConnection={reportActionError(async () => {
+        await retryConnection();
+      })}
+      onCreateSessionSubmit={reportActionError(async (event: Event) => {
+        event.preventDefault();
+        await createSession();
+      })}
+      onCreateSessionCancel={() => {
+        setCreateFormVisible(false);
+      }}
+      onOpenSession={reportActionError(async (sessionName: string) => {
+        await openSession(sessionName, { preserveTerminal: true, historyMode: "push" });
+      })}
+      onPasteToggle={reportActionError(async () => {
+        await togglePasteComposer();
+      })}
+      onSplitPane={reportActionError(async (direction: "vertical" | "horizontal") => {
+        await splitPane(direction);
+      })}
+      onUpdateTerminalFontSize={updateTerminalFontSize}
+      onPasteSubmit={reportActionError(async (event: Event) => {
+        event.preventDefault();
+        await submitPaste();
+      })}
+      onPasteCancel={() => {
+        setPasteComposerVisible(false);
+        terminal.focus();
+      }}
+      onSelectWindow={reportActionError(async (windowIndex: number) => {
+        await selectWindow(windowIndex);
+      })}
+      onSelectPane={reportActionError(async (paneId: string) => {
+        await selectPane(paneId);
+      })}
+    />,
+    rootElement
   );
 }
 
@@ -449,9 +194,15 @@ async function bootstrap() {
 }
 
 async function loadSessions() {
+  const requestId = sessionRequests.beginSessionListRequest();
   const previousSessions = state.sessions;
   const previousCurrentSession = state.currentSession;
   const { sessions } = await api<{ sessions: SessionSummary[] }>("/api/sessions");
+
+  if (!sessionRequests.isLatestSessionListRequest(requestId)) {
+    return;
+  }
+
   const orderedSessions = stableSessions(sessions);
   runtime.lastSessionListSyncAt = Date.now();
 
@@ -483,10 +234,21 @@ async function loadSessionState() {
     return;
   }
 
+  const request = sessionRequests.beginSessionStateRequest(state.currentSession);
+
   try {
-    const sessionState = await api<SessionStatePayload>(`/api/sessions/${encodeURIComponent(state.currentSession)}/state`);
-    replaceSessionState(sessionState);
+    const sessionState = await api<SessionStatePayload>(`/api/sessions/${encodeURIComponent(request.sessionName)}/state`);
+
+    if (!sessionRequests.canApplySessionState(request, state.currentSession)) {
+      return;
+    }
+
+    replaceSessionState(request.sessionName, sessionState);
   } catch (error) {
+    if (!sessionRequests.canApplySessionState(request, state.currentSession)) {
+      return;
+    }
+
     if (readErrorStatus(error) === 404) {
       await loadSessions();
       return;
@@ -494,6 +256,62 @@ async function loadSessionState() {
 
     throw error;
   }
+}
+
+async function createSession() {
+  const payload = {
+    name: sessionNameInputElement?.value.trim() || undefined
+  };
+
+  const { session } = await api<{ session: SessionSummary }>("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
+  if (sessionNameInputElement) {
+    sessionNameInputElement.value = "";
+  }
+
+  setCreateFormVisible(false);
+  await loadSessions();
+  await openSession(session.name, { preserveTerminal: true, historyMode: "push" });
+}
+
+async function togglePasteComposer() {
+  if (!state.currentSession) {
+    return;
+  }
+
+  const pasted = await pasteFromClipboard();
+
+  if (pasted) {
+    setPasteComposerVisible(false);
+    return;
+  }
+
+  setPasteComposerVisible(true);
+}
+
+async function submitPaste() {
+  if (!state.currentSession) {
+    return;
+  }
+
+  const text = pasteInputElement?.value ?? "";
+
+  if (!text) {
+    setPasteComposerVisible(false);
+    terminal.focus();
+    return;
+  }
+
+  pasteTerminalText(text);
+
+  if (pasteInputElement) {
+    pasteInputElement.value = "";
+  }
+
+  setPasteComposerVisible(false);
 }
 
 async function refreshSessionListIfStale(force = false) {
@@ -506,7 +324,11 @@ function clearSessionState() {
   dispatch({ type: "clearSessionState" });
 }
 
-function replaceSessionState(sessionState: SessionStatePayload) {
+function replaceSessionState(sessionName: string, sessionState: SessionStatePayload) {
+  if (state.currentSession !== sessionName) {
+    return;
+  }
+
   dispatch({
     type: "replaceSessionState",
     windows: sessionState.windows,
@@ -581,6 +403,7 @@ async function connectTerminal(
     terminal.clear();
   }
 
+  sessionRequests.advanceSessionGeneration();
   dispatch({ type: "setCurrentSession", sessionName });
   syncBrowserSession(sessionName, options.historyMode ?? "push");
 
@@ -665,7 +488,7 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
     ...options
   };
 
-  clearPendingSync();
+  sessionSync.clear();
 
   if (resolvedOptions.suppressReconnect && runtime.ws) {
     runtime.suppressedSocket = runtime.ws;
@@ -679,6 +502,7 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
 
   lastResizeCols = null;
   lastResizeRows = null;
+  sessionRequests.advanceSessionGeneration();
 
   dispatch({ type: "disconnect", clearSession: resolvedOptions.clearSession });
 
@@ -692,11 +516,13 @@ function disconnectTerminal(options: DisconnectOptions = {}) {
 }
 
 async function splitPane(direction: "vertical" | "horizontal") {
-  if (!state.currentSession) {
+  const sessionName = state.currentSession;
+
+  if (!sessionName) {
     return;
   }
 
-  const response = await api<SessionStatePayload>(`/api/sessions/${encodeURIComponent(state.currentSession)}/panes`, {
+  const response = await api<SessionStatePayload>(`/api/sessions/${encodeURIComponent(sessionName)}/panes`, {
     method: "POST",
     body: JSON.stringify({
       direction,
@@ -704,36 +530,40 @@ async function splitPane(direction: "vertical" | "horizontal") {
     })
   });
 
-  replaceSessionState(response);
+  replaceSessionState(sessionName, response);
   scheduleFit({ force: true });
 }
 
 async function selectWindow(windowIndex: number) {
-  if (!state.currentSession) {
+  const sessionName = state.currentSession;
+
+  if (!sessionName) {
     return;
   }
 
   const response = await api<SessionStatePayload>(
-    `/api/sessions/${encodeURIComponent(state.currentSession)}/windows/${encodeURIComponent(String(windowIndex))}/select`,
+    `/api/sessions/${encodeURIComponent(sessionName)}/windows/${encodeURIComponent(String(windowIndex))}/select`,
     { method: "POST" }
   );
 
-  replaceSessionState(response);
+  replaceSessionState(sessionName, response);
   scheduleFit({ force: true });
   terminal.focus();
 }
 
 async function selectPane(paneId: string) {
-  if (!state.currentSession) {
+  const sessionName = state.currentSession;
+
+  if (!sessionName) {
     return;
   }
 
   const response = await api<SessionStatePayload>(
-    `/api/sessions/${encodeURIComponent(state.currentSession)}/panes/${encodeURIComponent(paneId)}/select`,
+    `/api/sessions/${encodeURIComponent(sessionName)}/panes/${encodeURIComponent(paneId)}/select`,
     { method: "POST" }
   );
 
-  replaceSessionState(response);
+  replaceSessionState(sessionName, response);
   terminal.focus();
 }
 
@@ -796,53 +626,7 @@ function scheduleFit(options: { force?: boolean } = {}) {
 }
 
 async function syncCurrentSession() {
-  return syncSession({ refreshSessions: false, ignoreHidden: false });
-}
-
-async function syncSession(options: { refreshSessions?: boolean; ignoreHidden?: boolean; forceResize?: boolean } = {}) {
-  const refreshSessions = options.refreshSessions ?? false;
-  const ignoreHidden = options.ignoreHidden ?? false;
-  const forceResize = options.forceResize ?? false;
-
-  if (!state.currentSession || runtime.syncing || (!ignoreHidden && document.hidden)) {
-    return;
-  }
-
-  runtime.syncing = true;
-
-  try {
-    if (refreshSessions) {
-      await loadSessions();
-    }
-
-    if (!state.currentSession) {
-      return;
-    }
-
-    await loadSessionState();
-
-    if (!refreshSessions) {
-      await refreshSessionListIfStale();
-    }
-
-    if (forceResize) {
-      scheduleFit({ force: true });
-    }
-  } finally {
-    runtime.syncing = false;
-  }
-}
-
-function clearPendingSync() {
-  if (runtime.syncTimer) {
-    window.clearTimeout(runtime.syncTimer);
-    runtime.syncTimer = 0;
-  }
-
-  pendingSyncRefreshSessions = false;
-  pendingSyncIgnoreHidden = false;
-  pendingSyncForceResize = false;
-  runtime.syncing = false;
+  return sessionSync.run({ refreshSessions: false, ignoreHidden: false });
 }
 
 function requestSessionSync(options: { refreshSessions?: boolean; ignoreHidden?: boolean; forceResize?: boolean } = {}) {
@@ -850,28 +634,7 @@ function requestSessionSync(options: { refreshSessions?: boolean; ignoreHidden?:
     return;
   }
 
-  pendingSyncRefreshSessions = pendingSyncRefreshSessions || (options.refreshSessions ?? false);
-  pendingSyncIgnoreHidden = pendingSyncIgnoreHidden || (options.ignoreHidden ?? false);
-  pendingSyncForceResize = pendingSyncForceResize || (options.forceResize ?? false);
-
-  if (runtime.syncTimer) {
-    return;
-  }
-
-  runtime.syncTimer = window.setTimeout(() => {
-    const refreshSessions = pendingSyncRefreshSessions;
-    const ignoreHidden = pendingSyncIgnoreHidden;
-    const forceResize = pendingSyncForceResize;
-
-    pendingSyncRefreshSessions = false;
-    pendingSyncIgnoreHidden = false;
-    pendingSyncForceResize = false;
-    runtime.syncTimer = 0;
-
-    void syncSession({ refreshSessions, ignoreHidden, forceResize }).catch((error) => {
-      reportError(error);
-    });
-  }, 0);
+  sessionSync.request(options);
 }
 
 async function handleTerminalExit(ws: WebSocket, sessionName: string, exitCode: number | undefined) {
@@ -908,6 +671,7 @@ async function handleTerminalExit(ws: WebSocket, sessionName: string, exitCode: 
 
 async function handleTmuxNotification(payload: TmuxNotificationPayload) {
   if (payload.sessionName && payload.sessionName !== state.currentSession) {
+    sessionRequests.advanceSessionGeneration();
     dispatch({ type: "setCurrentSession", sessionName: payload.sessionName });
     syncBrowserSession(payload.sessionName, "replace");
   }
@@ -924,14 +688,14 @@ async function handleTmuxNotification(payload: TmuxNotificationPayload) {
     return;
   }
 
-  if (RESIZE_ECHO_EVENTS.has(payload.event) && Date.now() - runtime.lastLocalResizeAt < LOCAL_RESIZE_ECHO_WINDOW_MS) {
+  if (payload.ignoreResizeEcho && Date.now() - runtime.lastLocalResizeAt < LOCAL_RESIZE_ECHO_WINDOW_MS) {
     return;
   }
 
   requestSessionSync({
     refreshSessions: payload.refreshSessions,
     ignoreHidden: true,
-    forceResize: RESIZE_REASSERT_EVENTS.has(payload.event)
+    forceResize: payload.forceResize
   });
 }
 
@@ -950,10 +714,10 @@ async function openSession(
   await connectTerminal(sessionName, options);
 }
 
-function handleAction(action: (event: Event) => Promise<void> | void) {
-  return (event: Event) => {
+function reportActionError<Args extends unknown[]>(action: (...args: Args) => Promise<void> | void) {
+  return (...args: Args) => {
     try {
-      const result = action(event);
+      const result = action(...args);
       if (result instanceof Promise) {
         void result.catch((error) => {
           reportError(error);
@@ -1056,26 +820,6 @@ function syncBrowserSession(sessionName: string | null, historyMode: HistoryMode
 
 function buildTerminalSocketUrl(sessionName: string) {
   return `${protocol}://${window.location.host}/ws/terminal/${encodeURIComponent(sessionName)}`;
-}
-
-function currentSessionContext(
-  currentSession: string | null,
-  activeWindow: WindowSummary | null,
-  activePane: PaneSummary | null
-) {
-  if (!currentSession) {
-    return {
-      hasSession: false,
-      session: "No session selected",
-      detail: "Create a session or choose one below"
-    };
-  }
-
-  return {
-    hasSession: true,
-    session: currentSession,
-    detail: `${activeWindow ? `${activeWindow.index}:${activeWindow.name}` : "No window"} · ${activePane ? activePane.command || paneLabel(activePane) : "No command"}`
-  };
 }
 
 function bindTerminalFrame(element: HTMLDivElement | null) {
